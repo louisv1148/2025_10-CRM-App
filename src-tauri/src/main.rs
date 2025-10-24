@@ -1,0 +1,60 @@
+// Prevents additional console window on Windows in release, DO NOT REMOVE!!
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use tauri::Manager;
+
+// Tauri commands that will be called from frontend
+#[tauri::command]
+fn greet(name: &str) -> String {
+    format!("Hello, {}! Welcome to the CRM Meeting App.", name)
+}
+
+#[tauri::command]
+async fn start_recording(device_index: Option<u32>) -> Result<String, String> {
+    // TODO: Integrate with Python audio service
+    // For now, return a placeholder
+    Ok(format!("Recording started on device {:?}", device_index))
+}
+
+#[tauri::command]
+async fn stop_recording() -> Result<String, String> {
+    // TODO: Integrate with Python audio service
+    // For now, return a placeholder path
+    Ok("/path/to/recording.wav".to_string())
+}
+
+#[tauri::command]
+async fn get_audio_devices() -> Result<Vec<String>, String> {
+    // TODO: Integrate with Python audio service
+    Ok(vec![
+        "Default Microphone".to_string(),
+        "System Audio".to_string(),
+    ])
+}
+
+#[tauri::command]
+async fn transcribe_audio(audio_path: String) -> Result<String, String> {
+    // TODO: Integrate with Python transcription service
+    Ok(format!("Transcription of {}", audio_path))
+}
+
+#[tauri::command]
+async fn summarize_transcription(transcription: String) -> Result<String, String> {
+    // TODO: Integrate with Python summarization agent
+    Ok(format!("Summary of: {}", transcription))
+}
+
+fn main() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            start_recording,
+            stop_recording,
+            get_audio_devices,
+            transcribe_audio,
+            summarize_transcription
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
