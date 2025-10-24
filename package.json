@@ -9,7 +9,11 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "backend": "cd src-tauri/python && python3 backend.py",
+    "setup": "chmod +x setup/install.sh && ./setup/install.sh",
+    "db:init": "python3 setup/setup.py",
+    "db:view": "sqlite3 db/crm.db"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
