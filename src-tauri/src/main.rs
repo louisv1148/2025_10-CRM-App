@@ -1,6 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::process::Command;
 use tauri::Manager;
 
 // Tauri commands that will be called from frontend
@@ -47,6 +48,26 @@ async fn summarize_transcription(transcription: String) -> Result<String, String
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .setup(|app| {
+            // Auto-start embedded Python backend
+            let app_dir = app.path_resolver().resource_dir().unwrap_or_else(|| {
+                std::env::current_dir().expect("Failed to get current directory")
+            });
+            let backend_path = app_dir.join("python/backend.py");
+
+            // Start Python backend in background
+            if backend_path.exists() {
+                println!("Starting Python backend at {:?}", backend_path);
+                Command::new("python3")
+                    .args(["-u", backend_path.to_str().unwrap()])
+                    .spawn()
+                    .expect("Failed to start Python backend");
+            } else {
+                println!("Backend not found at {:?}, assuming it's running separately", backend_path);
+            }
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             start_recording,
