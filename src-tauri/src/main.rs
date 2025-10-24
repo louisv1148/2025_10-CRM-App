@@ -2,7 +2,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::process::Command;
-use tauri::Manager;
 
 // Tauri commands that will be called from frontend
 #[tauri::command]
@@ -48,12 +47,11 @@ async fn summarize_transcription(transcription: String) -> Result<String, String
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .setup(|app| {
+        .setup(|_app| {
             // Auto-start embedded Python backend
-            let app_dir = app.path_resolver().resource_dir().unwrap_or_else(|| {
-                std::env::current_dir().expect("Failed to get current directory")
-            });
-            let backend_path = app_dir.join("python/backend.py");
+            // In development, use current directory; in production, use resource directory
+            let app_dir = std::env::current_dir().expect("Failed to get current directory");
+            let backend_path = app_dir.join("src-tauri/python/backend.py");
 
             // Start Python backend in background
             if backend_path.exists() {
