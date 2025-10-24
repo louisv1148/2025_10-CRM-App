@@ -3,7 +3,7 @@
  * Uses Tauri invoke for communication with Python backend
  */
 
-import { invoke } from "@tauri-apps/api";
+import { invoke } from "@tauri-apps/api/core";
 
 const API_BASE_URL = "http://localhost:8000";
 

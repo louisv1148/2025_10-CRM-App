@@ -8,15 +8,26 @@
   import { fetchLPs, fetchGPs, fetchNotes, fetchTodos } from "./lib/api";
   import { lps, gps, notes, todos, activeTab } from "./lib/stores";
 
+  let loading = true;
+  let error = "";
+
   onMount(async () => {
     // Load initial data
     try {
+      console.log("Loading initial data...");
       $lps = await fetchLPs();
+      console.log("LPs loaded:", $lps);
       $gps = await fetchGPs();
+      console.log("GPs loaded:", $gps);
       $notes = await fetchNotes();
+      console.log("Notes loaded:", $notes);
       $todos = await fetchTodos();
-    } catch (error) {
-      console.error("Failed to load initial data:", error);
+      console.log("Todos loaded:", $todos);
+      loading = false;
+    } catch (err) {
+      console.error("Failed to load initial data:", err);
+      error = `Failed to load data: ${err}`;
+      loading = false;
     }
   });
 </script>
@@ -38,6 +49,11 @@
   </header>
 
   <div class="container">
+    {#if loading}
+      <div class="loading">Loading...</div>
+    {:else if error}
+      <div class="error">{error}</div>
+    {:else}
     {#if $activeTab === "meeting"}
       <div class="meeting-view">
         <div class="left-panel">
@@ -92,6 +108,7 @@
           </div>
         </div>
       </div>
+    {/if}
     {/if}
   </div>
 </main>
@@ -234,5 +251,19 @@
     border-radius: 4px;
     padding: 0.75rem;
     margin-bottom: 0.5rem;
+  }
+
+  .loading,
+  .error {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+    font-size: 1.5rem;
+    color: #666;
+  }
+
+  .error {
+    color: #e74c3c;
   }
 </style>
