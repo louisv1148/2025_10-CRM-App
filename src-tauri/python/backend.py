@@ -10,7 +10,8 @@ from typing import List, Optional
 from datetime import datetime
 
 from database import (
-    LP, GP, Person, Note, Todo,
+    LP, GP, Person, Note, Todo, Distributor,
+    GPLPLink, GPPersonLink, LPPersonLink,
     get_session, create_db_and_tables
 )
 
@@ -98,6 +99,25 @@ async def delete_gp(gp_id: int):
         session.delete(gp)
         session.commit()
         return {"status": "deleted"}
+
+
+# Distributor endpoints
+@app.get("/distributors", response_model=List[Distributor])
+async def get_distributors():
+    """Get all Distributors"""
+    with get_session() as session:
+        distributors = session.query(Distributor).all()
+        return distributors
+
+
+@app.post("/distributors", response_model=Distributor)
+async def create_distributor(distributor: Distributor):
+    """Create new Distributor"""
+    with get_session() as session:
+        session.add(distributor)
+        session.commit()
+        session.refresh(distributor)
+        return distributor
 
 
 # Person endpoints
@@ -200,6 +220,67 @@ async def update_todo(todo_id: int, todo_update: Todo):
         session.commit()
         session.refresh(todo)
         return todo
+
+
+# Relationship endpoints
+@app.get("/gps/{gp_id}/people")
+async def get_gp_people(gp_id: int):
+    """Get all people associated with a GP"""
+    with get_session() as session:
+        # Query people through the link table
+        links = session.query(GPPersonLink).filter(GPPersonLink.gp_id == gp_id).all()
+        person_ids = [link.person_id for link in links]
+
+        if not person_ids:
+            return []
+
+        people = session.query(Person).filter(Person.id.in_(person_ids)).all()
+        return people
+
+
+@app.get("/lps/{lp_id}/people")
+async def get_lp_people(lp_id: int):
+    """Get all people associated with an LP"""
+    with get_session() as session:
+        # Query people through the link table
+        links = session.query(LPPersonLink).filter(LPPersonLink.lp_id == lp_id).all()
+        person_ids = [link.person_id for link in links]
+
+        if not person_ids:
+            return []
+
+        people = session.query(Person).filter(Person.id.in_(person_ids)).all()
+        return people
+
+
+@app.get("/people/{person_id}/gps")
+async def get_person_gps(person_id: int):
+    """Get all GPs associated with a person"""
+    with get_session() as session:
+        # Query GPs through the link table
+        links = session.query(GPPersonLink).filter(GPPersonLink.person_id == person_id).all()
+        gp_ids = [link.gp_id for link in links]
+
+        if not gp_ids:
+            return []
+
+        gps = session.query(GP).filter(GP.id.in_(gp_ids)).all()
+        return gps
+
+
+@app.get("/people/{person_id}/lps")
+async def get_person_lps(person_id: int):
+    """Get all LPs associated with a person"""
+    with get_session() as session:
+        # Query LPs through the link table
+        links = session.query(LPPersonLink).filter(LPPersonLink.person_id == person_id).all()
+        lp_ids = [link.lp_id for link in links]
+
+        if not lp_ids:
+            return []
+
+        lps = session.query(LP).filter(LP.id.in_(lp_ids)).all()
+        return lps
 
 
 if __name__ == "__main__":
