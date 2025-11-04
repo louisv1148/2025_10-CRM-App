@@ -11,7 +11,7 @@ from datetime import datetime
 
 from database import (
     LP, GP, Person, Note, Todo, Distributor,
-    GPLPLink, GPPersonLink, LPPersonLink,
+    GPLPLink, GPPersonLink, LPPersonLink, DistributorPersonLink,
     get_session, create_db_and_tables
 )
 

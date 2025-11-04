@@ -15,8 +15,14 @@ class Distributor(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True)
 
+    # Distributor details
+    headquarter: Optional[str] = None  # Headquarters location
+    mexico: Optional[str] = None  # Mexico presence/info
+    text: Optional[str] = None  # General notes
+
     # Relationships
-    gps: List["GP"] = Relationship(back_populates="distributor")
+    gps: List["GP"] = Relationship(back_populates="distributor")  # One-to-many via GP.distributor_id
+    # Many-to-many with Person handled via DistributorPersonLink
 
 
 class LP(SQLModel, table=True):
@@ -58,6 +64,12 @@ class GPPersonLink(SQLModel, table=True):
 class LPPersonLink(SQLModel, table=True):
     """Link table for LP-Person many-to-many relationship"""
     lp_id: int = Field(foreign_key="lp.id", primary_key=True)
+    person_id: int = Field(foreign_key="person.id", primary_key=True)
+
+
+class DistributorPersonLink(SQLModel, table=True):
+    """Link table for Distributor-Person many-to-many relationship"""
+    distributor_id: int = Field(foreign_key="distributor.id", primary_key=True)
     person_id: int = Field(foreign_key="person.id", primary_key=True)
 
 
