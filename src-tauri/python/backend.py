@@ -70,6 +70,16 @@ async def delete_lp(lp_id: int):
         return {"status": "deleted"}
 
 
+@app.get("/lps/search", response_model=List[LP])
+async def search_lps(q: str = ""):
+    """Search LPs by name"""
+    with get_session() as session:
+        if not q or len(q.strip()) == 0:
+            return []
+        query = session.query(LP).filter(LP.name.ilike(f"%{q}%")).limit(10)
+        return query.all()
+
+
 # GP endpoints
 @app.get("/gps", response_model=List[GP])
 async def get_gps():
@@ -99,6 +109,16 @@ async def delete_gp(gp_id: int):
         session.delete(gp)
         session.commit()
         return {"status": "deleted"}
+
+
+@app.get("/gps/search", response_model=List[GP])
+async def search_gps(q: str = ""):
+    """Search GPs by name"""
+    with get_session() as session:
+        if not q or len(q.strip()) == 0:
+            return []
+        query = session.query(GP).filter(GP.name.ilike(f"%{q}%")).limit(10)
+        return query.all()
 
 
 # Distributor endpoints
@@ -137,6 +157,16 @@ async def create_person(person: Person):
         session.commit()
         session.refresh(person)
         return person
+
+
+@app.get("/people/search", response_model=List[Person])
+async def search_people(q: str = ""):
+    """Search people by name"""
+    with get_session() as session:
+        if not q or len(q.strip()) == 0:
+            return []
+        query = session.query(Person).filter(Person.name.ilike(f"%{q}%")).limit(10)
+        return query.all()
 
 
 # Note endpoints

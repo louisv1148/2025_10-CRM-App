@@ -55,6 +55,11 @@ export async function fetchLPs(): Promise<LP[]> {
   return response.json();
 }
 
+export async function searchLPs(query: string): Promise<LP[]> {
+  const response = await fetch(`${API_BASE_URL}/lps/search?q=${encodeURIComponent(query)}`);
+  return response.json();
+}
+
 export async function createLP(lp: LP): Promise<LP> {
   const response = await fetch(`${API_BASE_URL}/lps`, {
     method: "POST",
@@ -74,6 +79,11 @@ export async function fetchGPs(): Promise<GP[]> {
   return response.json();
 }
 
+export async function searchGPs(query: string): Promise<GP[]> {
+  const response = await fetch(`${API_BASE_URL}/gps/search?q=${encodeURIComponent(query)}`);
+  return response.json();
+}
+
 export async function createGP(gp: GP): Promise<GP> {
   const response = await fetch(`${API_BASE_URL}/gps`, {
     method: "POST",
@@ -90,6 +100,11 @@ export async function deleteGP(id: number): Promise<void> {
 // API functions - People
 export async function fetchPeople(): Promise<Person[]> {
   const response = await fetch(`${API_BASE_URL}/people`);
+  return response.json();
+}
+
+export async function searchPeople(query: string): Promise<Person[]> {
+  const response = await fetch(`${API_BASE_URL}/people/search?q=${encodeURIComponent(query)}`);
   return response.json();
 }
 

@@ -13,6 +13,7 @@ import os
 class Distributor(SQLModel, table=True):
     """Distributor organizations"""
     id: Optional[int] = Field(default=None, primary_key=True)
+    notion_id: Optional[str] = Field(default=None, index=True, unique=True)  # Notion page ID
     name: str = Field(index=True)
 
     # Distributor details
@@ -28,6 +29,7 @@ class Distributor(SQLModel, table=True):
 class LP(SQLModel, table=True):
     """Limited Partner organization"""
     id: Optional[int] = Field(default=None, primary_key=True)
+    notion_id: Optional[str] = Field(default=None, index=True, unique=True)  # Notion page ID
     name: str = Field(index=True)
 
     # LP Details from Notion
@@ -44,8 +46,9 @@ class LP(SQLModel, table=True):
     type_of_group: Optional[str] = None  # Type of LP group
     text: Optional[str] = None  # General notes/text
 
-    # Relationships
-    notes: List["Note"] = Relationship(back_populates="lp")
+    # Relationships via link tables
+    # Many-to-many with Note handled via NoteLPLink
+    # Many-to-many with Person handled via LPPersonLink
 
 
 # Many-to-many relationship tables
@@ -73,9 +76,28 @@ class DistributorPersonLink(SQLModel, table=True):
     person_id: int = Field(foreign_key="person.id", primary_key=True)
 
 
+class NoteGPLink(SQLModel, table=True):
+    """Link table for Note-GP many-to-many relationship"""
+    note_id: int = Field(foreign_key="note.id", primary_key=True)
+    gp_id: int = Field(foreign_key="gp.id", primary_key=True)
+
+
+class NoteLPLink(SQLModel, table=True):
+    """Link table for Note-LP many-to-many relationship"""
+    note_id: int = Field(foreign_key="note.id", primary_key=True)
+    lp_id: int = Field(foreign_key="lp.id", primary_key=True)
+
+
+class NoteDistributorLink(SQLModel, table=True):
+    """Link table for Note-Distributor many-to-many relationship"""
+    note_id: int = Field(foreign_key="note.id", primary_key=True)
+    distributor_id: int = Field(foreign_key="distributor.id", primary_key=True)
+
+
 class GP(SQLModel, table=True):
     """General Partner organization"""
     id: Optional[int] = Field(default=None, primary_key=True)
+    notion_id: Optional[str] = Field(default=None, index=True, unique=True)  # Notion page ID
     name: str = Field(index=True)
     location: Optional[str] = None
     contact_level: Optional[str] = None  # e.g., "Partner", "Open Dialogue", etc.
@@ -88,13 +110,15 @@ class GP(SQLModel, table=True):
 
     # Relationships
     distributor: Optional[Distributor] = Relationship(back_populates="gps")
-    notes: List["Note"] = Relationship(back_populates="gp")  # Related Notes
-    # Many-to-many relationships handled via link tables
+    # Many-to-many with Note handled via NoteGPLink
+    # Many-to-many with LP handled via GPLPLink
+    # Many-to-many with Person handled via GPPersonLink
 
 
 class Person(SQLModel, table=True):
     """Individual contact person"""
     id: Optional[int] = Field(default=None, primary_key=True)
+    notion_id: Optional[str] = Field(default=None, index=True, unique=True)  # Notion page ID
     name: str
 
     # Contact details
@@ -115,27 +139,41 @@ class Person(SQLModel, table=True):
 
 
 class Note(SQLModel, table=True):
-    """Meeting notes and summaries"""
+    """Meeting notes and summaries from Notion"""
     id: Optional[int] = Field(default=None, primary_key=True)
-    date: datetime = Field(default_factory=datetime.now)
+    notion_id: Optional[str] = Field(default=None, index=True, unique=True)  # Notion page ID for matching
 
-    # Foreign keys
-    lp_id: Optional[int] = Field(default=None, foreign_key="lp.id")
-    gp_id: Optional[int] = Field(default=None, foreign_key="gp.id")
+    name: str  # Note title
+    date: Optional[datetime] = None
 
-    # Relationships
-    lp: Optional[LP] = Relationship(back_populates="notes")
-    gp: Optional[GP] = Relationship(back_populates="notes")
-
-    # Note content
-    raw_notes: str = ""
-    summary: str = ""
+    # Notion properties
+    contact_type: Optional[str] = None
+    local_mf: Optional[str] = None  # Local Multi-Family
+    local_alts: Optional[str] = None  # Local Alternatives
+    intl_mf: Optional[str] = None  # International Multi-Family
+    intl_alts: Optional[str] = None  # International Alternatives
+    roadshows: Optional[str] = None
+    pin: Optional[str] = None
+    useful: Optional[bool] = None  # Checkbox field
     fundraise: Optional[str] = None
-    interest: Optional[str] = None  # Sales funnel stage
+    ai_summary: Optional[str] = None
 
-    # Audio metadata
+    # Note content (from blocks)
+    content_text: Optional[str] = None  # Plain text extracted from all blocks
+    content_json: Optional[str] = None  # Full block structure as JSON
+
+    # Image references
+    image_paths: Optional[str] = None  # Comma-separated local image paths
+
+    # Legacy fields (for compatibility with existing code)
+    raw_notes: Optional[str] = ""
+    summary: Optional[str] = ""
+    interest: Optional[str] = None  # Sales funnel stage
     audio_path: Optional[str] = None
     transcription_path: Optional[str] = None
+
+    # Relationships via link tables (many-to-many)
+    # GPs, LPs, Distributors handled via NoteGPLink, NoteLPLink, NoteDistributorLink
 
     # Todos
     todos: List["Todo"] = Relationship(back_populates="note")
