@@ -1,13 +1,20 @@
 <script lang="ts">
-  import { isRecording } from "../lib/stores";
-  import { startRecording, stopRecording } from "../lib/api";
+  import { isRecording, meetingDate, meetingTitle, meetingFundraise, meetingType, meetingPinned, funds, selectedFunds } from "../lib/stores";
+  import { startRecording, stopRecording, fetchFunds, type Fund } from "../lib/api";
+  import { onMount } from "svelte";
 
-  let meetingDate = new Date().toISOString().split("T")[0];
-  let fundraise = "";
-  let interest = "";
+  const fundraiseOptions = ["Commitment", "Due Diligence", "Interested", "Low Probability", "Declined", "No Response", "Inactive"];
+  const meetingTypeOptions = ["in-person", "in-bound", "call/VC", "chats", "out-bound", "documents"];
 
-  const fundraiseOptions = ["Pre-seed", "Seed", "Series A", "Series B", "Series C+", "Growth", "Other"];
-  const interestOptions = ["Cold", "Warm", "Hot", "Closed", "Passed"];
+  onMount(async () => {
+    // Load funds
+    try {
+      const loadedFunds = await fetchFunds();
+      $funds = loadedFunds;
+    } catch (err) {
+      console.error("Failed to load funds:", err);
+    }
+  });
 
   async function toggleRecording() {
     if ($isRecording) {
@@ -26,12 +33,18 @@
 
   <div class="form-group">
     <label for="date">Date</label>
-    <input id="date" type="date" bind:value={meetingDate} />
+    <input id="date" type="date" bind:value={$meetingDate} />
+  </div>
+
+  <div class="form-group">
+    <label for="title">Meeting Title</label>
+    <input id="title" type="text" bind:value={$meetingTitle} placeholder="e.g., Q4 Review" />
+    <small class="help-text">Will be saved as: {$meetingDate ? $meetingDate.replace(/-/g, '_') : 'YYYY_MM_DD'}_{$meetingTitle || 'Title'}</small>
   </div>
 
   <div class="form-group">
     <label for="fundraise">Fundraise Stage</label>
-    <select id="fundraise" bind:value={fundraise}>
+    <select id="fundraise" bind:value={$meetingFundraise}>
       <option value="">Select stage...</option>
       {#each fundraiseOptions as option}
         <option value={option}>{option}</option>
@@ -40,13 +53,31 @@
   </div>
 
   <div class="form-group">
-    <label for="interest">Interest Level</label>
-    <select id="interest" bind:value={interest}>
-      <option value="">Select level...</option>
-      {#each interestOptions as option}
+    <label for="meetingType">Meeting Type</label>
+    <select id="meetingType" bind:value={$meetingType}>
+      <option value="">Select type...</option>
+      {#each meetingTypeOptions as option}
         <option value={option}>{option}</option>
       {/each}
     </select>
+  </div>
+
+  <div class="form-group checkbox-group">
+    <label class="checkbox-label">
+      <input type="checkbox" bind:checked={$meetingPinned} />
+      <span>Pin this meeting</span>
+    </label>
+  </div>
+
+  <div class="form-group">
+    <label for="funds">Related Funds</label>
+    <select id="funds" bind:value={$selectedFunds} multiple size="4">
+      <option value="">No fund selected</option>
+      {#each $funds as fund}
+        <option value={fund.id}>{fund.fund_name}</option>
+      {/each}
+    </select>
+    <small class="help-text">Hold Ctrl/Cmd to select multiple funds</small>
   </div>
 
   <div class="recording-controls">
@@ -90,6 +121,36 @@
     border: 1px solid #ddd;
     border-radius: 4px;
     font-size: 0.9rem;
+  }
+
+  select[multiple] {
+    min-height: 100px;
+  }
+
+  .help-text {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+    color: #999;
+  }
+
+  .checkbox-group {
+    display: flex;
+    align-items: center;
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: #2c3e50;
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    width: auto;
+    cursor: pointer;
   }
 
   .recording-controls {

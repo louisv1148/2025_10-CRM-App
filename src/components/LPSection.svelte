@@ -1,20 +1,37 @@
 <script lang="ts">
-  import { selectedLP } from "../lib/stores";
+  import { selectedLP, selectedParticipants, lps } from "../lib/stores";
   import { searchLPs, createLP, searchPeople, createPerson, type LP, type Person } from "../lib/api";
 
   let lpSearchQuery = "";
   let lpSearchResults: LP[] = [];
   let lpShowDropdown = false;
   let lpSearchTimeout: ReturnType<typeof setTimeout>;
+  let selectedLPObject: LP | null = null;
 
   let newLPName = "";
+
+  // Reactive: Update selectedLPObject when selectedLP changes
+  $: if ($selectedLP) {
+    // Find the LP object from the lps store or from search results
+    const found = $lps.find(lp => lp.id === $selectedLP);
+    if (found) {
+      selectedLPObject = found;
+    }
+  } else {
+    selectedLPObject = null;
+  }
+
+  function removeLP() {
+    $selectedLP = null;
+    selectedLPObject = null;
+  }
 
   // Participants
   let participantSearchQuery = "";
   let participantSearchResults: Person[] = [];
   let participantShowDropdown = false;
   let participantSearchTimeout: ReturnType<typeof setTimeout>;
-  let selectedParticipants: Person[] = [];
+  let participantObjects: Person[] = []; // Local cache of full Person objects
   let newParticipantName = "";
 
   // LP search-as-you-type
@@ -39,7 +56,8 @@
 
   function selectLP(lp: LP) {
     $selectedLP = lp.id || null;
-    lpSearchQuery = lp.name;
+    selectedLPObject = lp;
+    lpSearchQuery = "";
     lpShowDropdown = false;
   }
 
@@ -77,8 +95,9 @@
   }
 
   function selectParticipant(person: Person) {
-    if (!selectedParticipants.find(p => p.id === person.id)) {
-      selectedParticipants = [...selectedParticipants, person];
+    if (person.id && !$selectedParticipants.includes(person.id)) {
+      $selectedParticipants = [...$selectedParticipants, person.id];
+      participantObjects = [...participantObjects, person];
     }
     participantSearchQuery = "";
     participantShowDropdown = false;
@@ -86,7 +105,8 @@
 
   function removeParticipant(personId: number | undefined) {
     if (personId) {
-      selectedParticipants = selectedParticipants.filter(p => p.id !== personId);
+      $selectedParticipants = $selectedParticipants.filter(id => id !== personId);
+      participantObjects = participantObjects.filter(p => p.id !== personId);
     }
   }
 
@@ -99,7 +119,10 @@
           org_type: "lp",
           org_id: $selectedLP
         });
-        selectedParticipants = [...selectedParticipants, newPerson];
+        if (newPerson.id) {
+          $selectedParticipants = [...$selectedParticipants, newPerson.id];
+          participantObjects = [...participantObjects, newPerson];
+        }
         newParticipantName = "";
       } catch (err) {
         console.error("Failed to create participant:", err);
@@ -147,6 +170,16 @@
     <button on:click={addLP}>Add</button>
   </div>
 
+  <!-- Selected LP Display -->
+  {#if selectedLPObject}
+    <div class="selected-list">
+      <div class="selected-item">
+        <span class="participant-name">{selectedLPObject.name}</span>
+        <button class="remove-btn" on:click={removeLP}>✕</button>
+      </div>
+    </div>
+  {/if}
+
   <div class="participants">
     <h4>Participants</h4>
 
@@ -184,7 +217,7 @@
     </div>
 
     <div class="selected-list">
-      {#each selectedParticipants as participant}
+      {#each participantObjects as participant}
         <div class="selected-item">
           <span class="participant-name">{participant.name}</span>
           <button class="remove-btn" on:click={() => removeParticipant(participant.id)}>✕</button>

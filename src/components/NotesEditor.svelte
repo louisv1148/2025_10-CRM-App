@@ -1,6 +1,19 @@
 <script lang="ts">
-  import { currentNote, hasUnsavedChanges, lastSaved } from "../lib/stores";
-  import { updateNote, createNote } from "../lib/api";
+  import {
+    currentNote,
+    hasUnsavedChanges,
+    lastSaved,
+    selectedLP,
+    selectedGP,
+    selectedParticipants,
+    selectedFunds,
+    meetingDate,
+    meetingTitle,
+    meetingFundraise,
+    meetingType,
+    meetingPinned
+  } from "../lib/stores";
+  import { updateNote, createNote, createNoteRelationships } from "../lib/api";
 
   let notes = "";
   let autoSaveTimer: number;
@@ -15,15 +28,60 @@
   }
 
   async function saveNotes() {
-    if ($currentNote?.id) {
-      await updateNote($currentNote.id, { raw_notes: notes });
-    } else {
-      const newNote = await createNote({ raw_notes: notes });
-      $currentNote = newNote;
-    }
+    try {
+      // Generate note name in YYYY_MM_DD_Title format
+      const dateFormatted = $meetingDate.replace(/-/g, '_');
+      const titlePart = $meetingTitle.trim() || 'Meeting';
+      const noteName = `${dateFormatted}_${titlePart}`;
 
-    $hasUnsavedChanges = false;
-    $lastSaved = new Date();
+      if ($currentNote?.id) {
+        // Update existing note
+        await updateNote($currentNote.id, {
+          name: noteName,
+          raw_notes: notes,
+          summary: notes.substring(0, 200) // First 200 chars as summary
+        });
+        console.log("Note updated:", $currentNote.id);
+      } else {
+        // Create new note with all metadata
+        const newNote = await createNote({
+          name: noteName,
+          raw_notes: notes,
+          summary: notes.substring(0, 200),
+          date: $meetingDate,
+          fundraise: $meetingFundraise || undefined,
+          contact_type: $meetingType || undefined,
+          pin: $meetingPinned ? "Yes" : undefined,
+          useful: $meetingPinned
+        });
+
+        console.log("Note created:", newNote);
+        $currentNote = newNote;
+
+        // Create relationships if we have a note ID
+        if (newNote.id) {
+          const lpIds = $selectedLP ? [$selectedLP] : [];
+          const gpIds = $selectedGP ? [$selectedGP] : [];
+          const participantIds = $selectedParticipants || [];
+          const fundIds = $selectedFunds || [];
+
+          console.log("Creating relationships:", { lpIds, gpIds, participantIds, fundIds });
+
+          if (lpIds.length > 0 || gpIds.length > 0 || participantIds.length > 0 || fundIds.length > 0) {
+            const result = await createNoteRelationships(newNote.id, lpIds, gpIds, participantIds, fundIds);
+            console.log("Relationships created:", result);
+          }
+        }
+
+        alert(`Note saved successfully as: ${noteName}`);
+      }
+
+      $hasUnsavedChanges = false;
+      $lastSaved = new Date();
+    } catch (err) {
+      console.error("Failed to save note:", err);
+      alert("Failed to save note: " + err);
+    }
   }
 
   function handleInput() {

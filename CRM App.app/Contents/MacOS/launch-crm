@@ -1,0 +1,39 @@
+#!/bin/bash
+
+# Get the app bundle path and navigate to the project root
+APP_PATH="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../../.." && pwd )"
+cd "$APP_PATH"
+
+# Function to cleanup on exit
+cleanup() {
+    echo "Shutting down CRM application..."
+    if [ ! -z "$BACKEND_PID" ]; then
+        kill $BACKEND_PID 2>/dev/null
+    fi
+    # Kill any remaining python backend processes
+    pkill -f "src-tauri/python/backend.py" 2>/dev/null
+    exit 0
+}
+
+trap cleanup EXIT INT TERM
+
+# Open a new terminal window for the backend
+osascript -e 'tell application "Terminal"
+    do script "cd \"'"$APP_PATH"'\" && source src-tauri/python/lib/bin/activate && python3 src-tauri/python/backend.py && echo \"Backend server stopped. You can close this window.\""
+    set custom title of front window to "CRM Backend Server"
+end tell'
+
+# Wait for backend to start
+sleep 4
+
+# Check if backend is running
+if ! curl -s http://localhost:8000/health > /dev/null 2>&1; then
+    osascript -e 'display dialog "Failed to start backend server. Please check the Terminal window for errors." buttons {"OK"} default button "OK" with icon stop'
+    exit 1
+fi
+
+# Start the frontend
+npm run tauri dev
+
+# Cleanup when done
+cleanup

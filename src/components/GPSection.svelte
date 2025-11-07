@@ -1,13 +1,24 @@
 <script lang="ts">
-  import { selectedGP } from "../lib/stores";
+  import { selectedGP, gps } from "../lib/stores";
   import { searchGPs, createGP, searchPeople, createPerson, type GP, type Person } from "../lib/api";
 
   let gpSearchQuery = "";
   let gpSearchResults: GP[] = [];
   let gpShowDropdown = false;
   let gpSearchTimeout: ReturnType<typeof setTimeout>;
+  let selectedGPObject: GP | null = null;
 
   let newGPName = "";
+
+  // Reactive: Update selectedGPObject when selectedGP changes
+  $: if ($selectedGP) {
+    const found = $gps.find(gp => gp.id === $selectedGP);
+    if (found) {
+      selectedGPObject = found;
+    }
+  } else {
+    selectedGPObject = null;
+  }
 
   // Participants
   let participantSearchQuery = "";
@@ -39,7 +50,8 @@
 
   function selectGP(gp: GP) {
     $selectedGP = gp.id || null;
-    gpSearchQuery = gp.name;
+    selectedGPObject = gp;
+    gpSearchQuery = "";
     gpShowDropdown = false;
   }
 
@@ -47,6 +59,11 @@
     $selectedGP = null;
     gpSearchQuery = "";
     gpSearchResults = [];
+  }
+
+  function removeGP() {
+    $selectedGP = null;
+    selectedGPObject = null;
   }
 
   async function addGP() {
@@ -146,6 +163,16 @@
     />
     <button on:click={addGP}>Add</button>
   </div>
+
+  <!-- Selected GP Display -->
+  {#if selectedGPObject}
+    <div class="selected-list">
+      <div class="selected-item">
+        <span class="participant-name">{selectedGPObject.name}</span>
+        <button class="remove-btn" on:click={removeGP}>✕</button>
+      </div>
+    </div>
+  {/if}
 
   <div class="participants">
     <h4>Participants</h4>

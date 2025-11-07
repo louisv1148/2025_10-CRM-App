@@ -94,6 +94,12 @@ class NoteDistributorLink(SQLModel, table=True):
     distributor_id: int = Field(foreign_key="distributor.id", primary_key=True)
 
 
+class NoteFundLink(SQLModel, table=True):
+    """Link table for Note-Fund many-to-many relationship"""
+    note_id: int = Field(foreign_key="note.id", primary_key=True)
+    fund_id: int = Field(foreign_key="fund.id", primary_key=True)
+
+
 class GP(SQLModel, table=True):
     """General Partner organization"""
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -189,6 +195,39 @@ class Todo(SQLModel, table=True):
 
     # Relationship
     note: Optional[Note] = Relationship(back_populates="todos")
+
+
+class Fund(SQLModel, table=True):
+    """Investment funds from Notion"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    notion_id: Optional[str] = Field(default=None, index=True, unique=True)  # Notion page ID
+
+    # Core fields
+    fund_name: str = Field(index=True)
+
+    # Fund details from Notion
+    geography: Optional[str] = None
+    target_multiple: Optional[float] = None
+    status: Optional[str] = None
+    days_to_rs: Optional[int] = None
+    target_irr: Optional[str] = None  # Can be "20+" etc
+    hard_cap_mn: Optional[float] = None  # Hard cap in millions
+    target_mn: Optional[float] = None  # Target in millions
+    roadshow_date: Optional[datetime] = None
+    sectors: Optional[str] = None  # Comma-separated
+    note: Optional[str] = None  # General notes
+    potential: Optional[str] = None
+    asset_class: Optional[str] = None
+    current_lps: Optional[str] = None  # Current LPs info
+    launch: Optional[datetime] = None
+    roadshows: Optional[str] = None
+    final_close: Optional[datetime] = None
+    closed: Optional[bool] = None
+
+    # GP relationship - stored as notion_id reference
+    gp_notion_id: Optional[str] = None  # Reference to GP's notion_id
+
+    # Many-to-many with Note handled via NoteFundLink
 
 
 # Database setup

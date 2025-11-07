@@ -5,6 +5,10 @@
   import MeetingMeta from "./components/MeetingMeta.svelte";
   import NotesEditor from "./components/NotesEditor.svelte";
   import TodoList from "./components/TodoList.svelte";
+  import LPDatabaseView from "./components/LPDatabaseView.svelte";
+  import GPDatabaseView from "./components/GPDatabaseView.svelte";
+  import NotesDatabaseView from "./components/NotesDatabaseView.svelte";
+  import PeopleDatabaseView from "./components/PeopleDatabaseView.svelte";
   import { fetchLPs, fetchGPs, fetchNotes, fetchTodos } from "./lib/api";
   import { lps, gps, notes, todos, activeTab } from "./lib/stores";
 
@@ -39,11 +43,20 @@
       <button class:active={$activeTab === "meeting"} on:click={() => ($activeTab = "meeting")}>
         Meeting
       </button>
+      <button class:active={$activeTab === "lp-database"} on:click={() => ($activeTab = "lp-database")}>
+        LP Database
+      </button>
+      <button class:active={$activeTab === "gp-database"} on:click={() => ($activeTab = "gp-database")}>
+        GP Database
+      </button>
+      <button class:active={$activeTab === "notes-database"} on:click={() => ($activeTab = "notes-database")}>
+        Notes Database
+      </button>
+      <button class:active={$activeTab === "people-database"} on:click={() => ($activeTab = "people-database")}>
+        People Database
+      </button>
       <button class:active={$activeTab === "history"} on:click={() => ($activeTab = "history")}>
         History
-      </button>
-      <button class:active={$activeTab === "contacts"} on:click={() => ($activeTab = "contacts")}>
-        Contacts
       </button>
     </nav>
   </header>
@@ -70,6 +83,14 @@
           <TodoList />
         </div>
       </div>
+    {:else if $activeTab === "lp-database"}
+      <LPDatabaseView />
+    {:else if $activeTab === "gp-database"}
+      <GPDatabaseView />
+    {:else if $activeTab === "notes-database"}
+      <NotesDatabaseView />
+    {:else if $activeTab === "people-database"}
+      <PeopleDatabaseView />
     {:else if $activeTab === "history"}
       <div class="history-view">
         <h2>Meeting History</h2>

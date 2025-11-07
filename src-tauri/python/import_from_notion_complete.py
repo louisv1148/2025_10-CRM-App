@@ -144,6 +144,10 @@ def extract_property_value(prop, for_storage=True):
         return date.get("start") if date else None
     elif prop_type == "checkbox":
         return prop.get("checkbox")
+    elif prop_type == "email":
+        return prop.get("email")
+    elif prop_type == "phone_number":
+        return prop.get("phone_number")
     elif prop_type == "relation":
         # Relations: return list if not for storage, else return None (we handle these separately)
         relation_list = [rel.get("id") for rel in prop.get("relation", [])]
@@ -217,22 +221,20 @@ def import_lps(export_file):
 
         name = extract_property_value(props.get('Name', {}))
         aum = extract_property_value(props.get('AUM (B)', {}))
-        advisor = extract_property_value(props.get('Advisor', {}))
-        intl_alts = extract_property_value(props.get('Intl. Alts.', {}))
+
+        # Advisor is a relation - store as comma-separated IDs for now
+        advisor_relations = props.get('Advisor', {}).get('relation', [])
+        advisor = ', '.join([rel['id'] for rel in advisor_relations]) if advisor_relations else None
+
+        # Fix field name typo: "Intl. Atls." in Notion (not "Alts")
+        intl_alts = extract_property_value(props.get('Intl. Atls.', {}))
         intl_mf = extract_property_value(props.get('Intl. MF', {}))
         local_alts = extract_property_value(props.get('Local Alts.', {}))
         local_mf = extract_property_value(props.get('Local MF', {}))
 
-        # Investment range might be a string like "10-50"
-        investment_range = extract_property_value(props.get('Investment HIGH/LOW', {}))
-        inv_high, inv_low = None, None
-        if investment_range and isinstance(investment_range, str) and '-' in investment_range:
-            parts = investment_range.split('-')
-            try:
-                inv_low = float(parts[0].strip())
-                inv_high = float(parts[1].strip())
-            except:
-                pass
+        # Investment HIGH and LOW are separate number fields
+        inv_low = extract_property_value(props.get('Investment LOW', {}))
+        inv_high = extract_property_value(props.get('Investment HIGH', {}))
 
         location = extract_property_value(props.get('Location', {}))
         priority = extract_property_value(props.get('Priority', {}))
@@ -296,7 +298,7 @@ def import_gps(export_file):
 
 
 def import_people(export_file):
-    """Import People from Notion export"""
+    """Import People from Notion export with LP/GP/Distributor relationships"""
     print("Importing People...")
 
     with open(export_file, 'r') as f:
@@ -304,6 +306,20 @@ def import_people(export_file):
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+
+    # Build lookups for relationships
+    cursor.execute("SELECT id, notion_id FROM lp")
+    lp_lookup = {notion_id: id for id, notion_id in cursor.fetchall()}
+
+    cursor.execute("SELECT id, notion_id FROM gp")
+    gp_lookup = {notion_id: id for id, notion_id in cursor.fetchall()}
+
+    cursor.execute("SELECT id, notion_id FROM distributor")
+    dist_lookup = {notion_id: id for id, notion_id in cursor.fetchall()}
+
+    lp_person_links = []
+    gp_person_links = []
+    dist_person_links = []
 
     for page in data['pages']:
         notion_id = page['id']
@@ -324,9 +340,45 @@ def import_people(export_file):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (notion_id, name, cell, office, email, location, people_type, position, personal))
 
+        person_id = cursor.lastrowid
+
+        # Extract LP relationships (💰 CRM LPs)
+        lp_relations = props.get('💰 CRM LPs', {}).get('relation', [])
+        for rel in lp_relations:
+            lp_notion_id = rel['id']
+            if lp_notion_id in lp_lookup:
+                lp_person_links.append((lp_lookup[lp_notion_id], person_id))
+
+        # Extract GP relationships (🌆 CRM GPs)
+        gp_relations = props.get('🌆 CRM GPs', {}).get('relation', [])
+        for rel in gp_relations:
+            gp_notion_id = rel['id']
+            if gp_notion_id in gp_lookup:
+                gp_person_links.append((gp_lookup[gp_notion_id], person_id))
+
+        # Extract Distributor relationships (👞 CRM Distributor)
+        dist_relations = props.get('👞 CRM Distributor', {}).get('relation', [])
+        for rel in dist_relations:
+            dist_notion_id = rel['id']
+            if dist_notion_id in dist_lookup:
+                dist_person_links.append((dist_lookup[dist_notion_id], person_id))
+
+    # Insert all relationship links
+    if lp_person_links:
+        cursor.executemany("INSERT OR IGNORE INTO lppersonlink (lp_id, person_id) VALUES (?, ?)", lp_person_links)
+
+    if gp_person_links:
+        cursor.executemany("INSERT OR IGNORE INTO gppersonlink (gp_id, person_id) VALUES (?, ?)", gp_person_links)
+
+    if dist_person_links:
+        cursor.executemany("INSERT OR IGNORE INTO distributorpersonlink (distributor_id, person_id) VALUES (?, ?)", dist_person_links)
+
     conn.commit()
     conn.close()
-    print(f"  ✓ Imported {len(data['pages'])} people\n")
+    print(f"  ✓ Imported {len(data['pages'])} people")
+    print(f"  ✓ Created {len(lp_person_links)} LP-Person relationships")
+    print(f"  ✓ Created {len(gp_person_links)} GP-Person relationships")
+    print(f"  ✓ Created {len(dist_person_links)} Distributor-Person relationships\n")
 
 
 def import_notes(export_file):
@@ -473,10 +525,10 @@ def main():
     print("IMPORTING DATA FROM NOTION EXPORTS")
     print("=" * 80 + "\n")
 
-    import_distributors('notion_export_ced0e422594344019215685a01968341_20251103_225522.json')
-    import_lps('notion_export_f8e8e49595504e24843093a86170ba4e_20251103_225512.json')
-    import_gps('notion_export_3a440409b8f249319081379ff5b10e89_20251103_225503.json')
-    import_people('notion_export_79e695dba97e415b87d2dc1d5eb67cd2_20251103_225656.json')
+    import_distributors('notion_export_ced0e422594344019215685a01968341_20251104_175542.json')
+    import_lps('notion_export_f8e8e49595504e24843093a86170ba4e_20251104_175547.json')
+    import_gps('notion_export_3a440409b8f249319081379ff5b10e89_20251104_175602.json')
+    import_people('notion_export_79e695dba97e415b87d2dc1d5eb67cd2_20251104_175605.json')
     import_notes('notion_export_with_images_6b3d8f29d43d402c86a530758b340a72_20251103_215037.json')
 
     print("=" * 80)

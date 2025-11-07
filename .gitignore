@@ -50,3 +50,8 @@ data/summaries/
 # Tauri
 /src-tauri/target
 /src-tauri/WixTools
+
+# Notion exports and images
+notion_images/
+notion_export*.json
+*.md
