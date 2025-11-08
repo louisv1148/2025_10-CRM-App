@@ -65,6 +65,8 @@ export interface Note {
   content_text?: string;
   fundraise?: string;
   interest?: string;
+  contact_type?: string;
+  useful?: boolean;
   audio_path?: string;
   transcription_path?: string;
 }
@@ -250,6 +252,18 @@ export async function fetchNoteGPs(noteId: number): Promise<GP[]> {
 export async function fetchNoteFunds(noteId: number): Promise<Fund[]> {
   const response = await fetch(`${API_BASE_URL}/notes/${noteId}/funds`);
   return response.json();
+}
+
+export async function linkNoteToFund(noteId: number, fundId: number): Promise<void> {
+  await fetch(`${API_BASE_URL}/notes/${noteId}/funds/${fundId}`, {
+    method: "POST",
+  });
+}
+
+export async function unlinkNoteFromFund(noteId: number, fundId: number): Promise<void> {
+  await fetch(`${API_BASE_URL}/notes/${noteId}/funds/${fundId}`, {
+    method: "DELETE",
+  });
 }
 
 export async function updateNote(id: number, note: Partial<Note>): Promise<Note> {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from "svelte";
-  import { fetchNoteLPs, fetchNoteGPs, updateNote, type Note, type LP, type GP } from "../lib/api";
+  import { fetchNoteLPs, fetchNoteGPs, fetchNoteFunds, updateNote, searchFunds, linkNoteToFund, unlinkNoteFromFund, type Note, type LP, type GP, type Fund } from "../lib/api";
   import { parseNotionContentWithImages } from "../lib/notionParser";
 
   export let note: Note;
@@ -10,7 +10,14 @@
   // Related entities
   let relatedLPs: LP[] = [];
   let relatedGPs: GP[] = [];
+  let relatedFunds: Fund[] = [];
   let loadingRelations = true;
+
+  // Fund search state
+  let fundSearchQuery = "";
+  let fundSearchResults: Fund[] = [];
+  let fundShowDropdown = false;
+  let fundSearchTimeout: ReturnType<typeof setTimeout>;
 
   // Edit mode
   let isEditing = false;
@@ -25,18 +32,83 @@
     }
 
     try {
-      const [lps, gps] = await Promise.all([
+      const [lps, gps, funds] = await Promise.all([
         fetchNoteLPs(note.id),
-        fetchNoteGPs(note.id)
+        fetchNoteGPs(note.id),
+        fetchNoteFunds(note.id)
       ]);
       relatedLPs = lps;
       relatedGPs = gps;
+      relatedFunds = funds;
     } catch (err) {
       console.error('Failed to load related entities:', err);
     } finally {
       loadingRelations = false;
     }
   });
+
+  // Fund search-as-you-type
+  function handleFundSearch() {
+    clearTimeout(fundSearchTimeout);
+    fundSearchTimeout = setTimeout(async () => {
+      if (fundSearchQuery.trim().length < 2) {
+        fundSearchResults = [];
+        fundShowDropdown = false;
+        return;
+      }
+
+      try {
+        fundSearchResults = await searchFunds(fundSearchQuery);
+        fundShowDropdown = true;
+      } catch (err) {
+        console.error("Fund search failed:", err);
+      }
+    }, 300);
+  }
+
+  function clearFundSearch() {
+    fundSearchQuery = "";
+    fundSearchResults = [];
+    fundShowDropdown = false;
+  }
+
+  async function addFund(fund: Fund) {
+    if (!note.id || !fund.id) return;
+
+    // Check if fund is already linked
+    if (relatedFunds.some(f => f.id === fund.id)) {
+      console.log("Fund already linked, skipping");
+      clearFundSearch();
+      return;
+    }
+
+    try {
+      await linkNoteToFund(note.id, fund.id);
+      relatedFunds = [...relatedFunds, fund];
+      clearFundSearch();
+      console.log("Fund linked, dispatching updated event");
+      // Emit event to notify parent that note was updated
+      dispatch("updated");
+    } catch (err) {
+      console.error("Failed to link fund:", err);
+      alert("Failed to link fund");
+    }
+  }
+
+  async function removeFund(fund: Fund) {
+    if (!note.id || !fund.id) return;
+
+    try {
+      await unlinkNoteFromFund(note.id, fund.id);
+      relatedFunds = relatedFunds.filter(f => f.id !== fund.id);
+      console.log("Fund removed, dispatching updated event");
+      // Emit event to notify parent that note was updated
+      dispatch("updated");
+    } catch (err) {
+      console.error("Failed to unlink fund:", err);
+      alert("Failed to unlink fund");
+    }
+  }
 
   function startEditing() {
     isEditing = true;
@@ -66,6 +138,9 @@
       Object.assign(note, updated);
       isEditing = false;
       editedNote = {};
+      console.log("Note saved, dispatching updated event");
+      // Emit event to notify parent that note was updated
+      dispatch("updated");
     } catch (err) {
       console.error('Failed to save note:', err);
       alert('Failed to save changes');
@@ -174,12 +249,58 @@
             {/if}
           </div>
 
-          <div class="info-item">
-            <label>Fundraise</label>
+          <div class="info-item full-width">
+            <label>Fundraise (Funds)</label>
             {#if isEditing}
-              <input class="edit-input" type="text" bind:value={editedNote.fundraise} />
+              <div class="fund-search-section">
+                <div class="search-input-wrapper">
+                  <input
+                    class="edit-input"
+                    type="text"
+                    placeholder="Search funds..."
+                    bind:value={fundSearchQuery}
+                    on:input={handleFundSearch}
+                    on:focus={() => fundSearchQuery && (fundShowDropdown = true)}
+                  />
+                  {#if fundSearchQuery}
+                    <button class="clear-btn" on:click={clearFundSearch}>✕</button>
+                  {/if}
+                </div>
+
+                {#if fundShowDropdown && fundSearchResults.length > 0}
+                  <div class="search-dropdown">
+                    {#each fundSearchResults as fund}
+                      <div
+                        class="search-result-item"
+                        on:click={() => addFund(fund)}
+                      >
+                        {fund.fund_name}
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+
+                {#if relatedFunds.length > 0}
+                  <div class="selected-funds">
+                    {#each relatedFunds as fund}
+                      <div class="fund-chip">
+                        <span>{fund.fund_name}</span>
+                        <button class="remove-fund-btn" on:click={() => removeFund(fund)}>✕</button>
+                      </div>
+                    {/each}
+                  </div>
+                {:else}
+                  <div class="no-funds">No funds linked</div>
+                {/if}
+              </div>
             {:else}
-              <div class="value">{note.fundraise || '-'}</div>
+              <div class="value">
+                {#if relatedFunds.length > 0}
+                  {relatedFunds.map(f => f.fund_name).join(', ')}
+                {:else}
+                  -
+                {/if}
+              </div>
             {/if}
           </div>
 
@@ -219,7 +340,7 @@
           </div>
         {/if}
 
-        {#if !loadingRelations && (relatedLPs.length > 0 || relatedGPs.length > 0)}
+        {#if !loadingRelations && (relatedLPs.length > 0 || relatedGPs.length > 0 || relatedFunds.length > 0)}
           <div class="relations-section">
             {#if relatedLPs.length > 0}
               <div class="relation-group">
@@ -238,6 +359,17 @@
                 <div class="relation-list">
                   {#each relatedGPs as gp}
                     <div class="relation-item">{gp.name}</div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+
+            {#if relatedFunds.length > 0}
+              <div class="relation-group">
+                <h4>Related Funds</h4>
+                <div class="relation-list">
+                  {#each relatedFunds as fund}
+                    <div class="relation-item">{fund.fund_name}</div>
                   {/each}
                 </div>
               </div>
@@ -422,6 +554,10 @@
     margin-bottom: 2rem;
   }
 
+  .info-item.full-width {
+    grid-column: 1 / -1;
+  }
+
   .info-item label {
     display: block;
     font-size: 0.85rem;
@@ -557,5 +693,112 @@
     background: #e74c3c;
     color: white;
     transform: scale(1.1);
+  }
+
+  /* Fund search styles */
+  .fund-search-section {
+    position: relative;
+  }
+
+  .search-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .clear-btn {
+    position: absolute;
+    right: 8px;
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    color: #999;
+    cursor: pointer;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s;
+  }
+
+  .clear-btn:hover {
+    color: #e74c3c;
+  }
+
+  .search-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+    margin-top: 4px;
+  }
+
+  .search-result-item {
+    padding: 0.75rem;
+    cursor: pointer;
+    transition: background 0.2s;
+    border-bottom: 1px solid #f0f0f0;
+  }
+
+  .search-result-item:last-child {
+    border-bottom: none;
+  }
+
+  .search-result-item:hover {
+    background: #f8f9fa;
+  }
+
+  .selected-funds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+
+  .fund-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: #3498db;
+    color: white;
+    padding: 0.4rem 0.8rem;
+    border-radius: 20px;
+    font-size: 0.9rem;
+  }
+
+  .remove-fund-btn {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 0;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: background 0.2s;
+  }
+
+  .remove-fund-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .no-funds {
+    margin-top: 0.75rem;
+    color: #999;
+    font-style: italic;
+    font-size: 0.9rem;
   }
 </style>

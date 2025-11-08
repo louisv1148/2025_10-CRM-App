@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fetchNotes, fetchNoteLPs, fetchNoteGPs, type Note, type LP, type GP } from "../lib/api";
+  import { fetchNotes, fetchNote, fetchNoteLPs, fetchNoteGPs, fetchNoteFunds, type Note, type LP, type GP, type Fund } from "../lib/api";
   import NoteDetailCard from "./NoteDetailCard.svelte";
 
   let allNotes: Note[] = [];
@@ -10,6 +10,7 @@
   // Related entities
   let noteLPs: Map<number, string> = new Map();
   let noteGPs: Map<number, string> = new Map();
+  let noteFunds: Map<number, string> = new Map();
 
   // Detail card state
   let selectedNote: Note | null = null;
@@ -131,14 +132,15 @@
     try {
       allNotes = await fetchNotes();
 
-      // Fetch related LPs and GPs for each note
+      // Fetch related LPs, GPs, and Funds for each note
       const relatedPromises = allNotes.map(async (note) => {
         if (!note.id) return;
 
         try {
-          const [lps, gps] = await Promise.all([
+          const [lps, gps, funds] = await Promise.all([
             fetchNoteLPs(note.id),
-            fetchNoteGPs(note.id)
+            fetchNoteGPs(note.id),
+            fetchNoteFunds(note.id)
           ]);
 
           if (lps && lps.length > 0) {
@@ -148,6 +150,10 @@
           if (gps && gps.length > 0) {
             noteGPs.set(note.id, gps.map(gp => gp.name).join(', '));
           }
+
+          if (funds && funds.length > 0) {
+            noteFunds.set(note.id, funds.map(fund => fund.fund_name).join(', '));
+          }
         } catch (err) {
           console.error(`Failed to load related data for note ${note.id}:`, err);
         }
@@ -156,6 +162,7 @@
       await Promise.all(relatedPromises);
       noteLPs = noteLPs;
       noteGPs = noteGPs;
+      noteFunds = noteFunds;
 
       // Extract unique values for filters
       const interests = new Set<string>();
@@ -305,7 +312,7 @@
       case 'interest':
         return note.interest || '-';
       case 'fundraise':
-        return note.fundraise || '-';
+        return note.id ? (noteFunds.get(note.id) || '-') : '-';
       case 'summary':
         return note.summary || '-';
       case 'related_lps':
@@ -330,6 +337,74 @@
   function closeDetailCard() {
     showDetailCard = false;
     selectedNote = null;
+  }
+
+  async function handleNoteUpdated() {
+    console.log("handleNoteUpdated called for note:", selectedNote?.id);
+    if (!selectedNote?.id) return;
+
+    try {
+      // Fetch the updated note data from the API
+      const updatedNote = await fetchNote(selectedNote.id);
+      console.log("Fetched updated note:", updatedNote);
+
+      // Update the note in the allNotes array
+      const noteIndex = allNotes.findIndex(n => n.id === selectedNote.id);
+      if (noteIndex !== -1) {
+        allNotes[noteIndex] = updatedNote;
+        allNotes = [...allNotes]; // Create new array to trigger reactivity
+        console.log("Updated note in allNotes array at index", noteIndex);
+      }
+
+      // Update selectedNote to reflect changes in the detail card
+      selectedNote = updatedNote;
+
+      // Fetch and update related LPs, GPs, and Funds
+      const [lps, gps, funds] = await Promise.all([
+        fetchNoteLPs(selectedNote.id),
+        fetchNoteGPs(selectedNote.id),
+        fetchNoteFunds(selectedNote.id)
+      ]);
+      console.log("Fetched related data - LPs:", lps, "GPs:", gps, "Funds:", funds);
+
+      // Create new Maps to trigger reactivity
+      const newNoteLPs = new Map(noteLPs);
+      const newNoteGPs = new Map(noteGPs);
+      const newNoteFunds = new Map(noteFunds);
+
+      // Update LPs
+      if (lps && lps.length > 0) {
+        newNoteLPs.set(selectedNote.id, lps.map(lp => lp.name).join(', '));
+      } else {
+        newNoteLPs.delete(selectedNote.id);
+      }
+
+      // Update GPs
+      if (gps && gps.length > 0) {
+        newNoteGPs.set(selectedNote.id, gps.map(gp => gp.name).join(', '));
+      } else {
+        newNoteGPs.delete(selectedNote.id);
+      }
+
+      // Update Funds
+      if (funds && funds.length > 0) {
+        newNoteFunds.set(selectedNote.id, funds.map(fund => fund.fund_name).join(', '));
+      } else {
+        newNoteFunds.delete(selectedNote.id);
+      }
+
+      // Assign new Maps to trigger reactivity
+      noteLPs = newNoteLPs;
+      noteGPs = newNoteGPs;
+      noteFunds = newNoteFunds;
+
+      console.log("All data updated, reactivity triggered");
+
+      // Re-apply filters and sort to update the filtered view
+      applyFiltersAndSort();
+    } catch (err) {
+      console.error(`Failed to refresh note data for note ${selectedNote.id}:`, err);
+    }
   }
 
   function formatDate(dateStr: string | undefined): string {
@@ -530,7 +605,7 @@
 </div>
 
 {#if showDetailCard && selectedNote}
-  <NoteDetailCard note={selectedNote} on:close={closeDetailCard} />
+  <NoteDetailCard note={selectedNote} on:close={closeDetailCard} on:updated={handleNoteUpdated} />
 {/if}
 
 <style>
