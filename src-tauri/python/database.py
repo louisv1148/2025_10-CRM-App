@@ -100,6 +100,19 @@ class NoteFundLink(SQLModel, table=True):
     fund_id: int = Field(foreign_key="fund.id", primary_key=True)
 
 
+class FundLPInterest(SQLModel, table=True):
+    """Track LP interest level for each Fund (Sales Funnel)"""
+    fund_id: int = Field(foreign_key="fund.id", primary_key=True)
+    lp_id: int = Field(foreign_key="lp.id", primary_key=True)
+
+    # Sales funnel interest levels
+    interest: str = "inactive"  # inactive, commitment, due_diligence, interested, meeting, meeting_offered, no_reply, low_probability
+
+    # Auto-updated fields
+    last_contact_date: Optional[datetime] = None  # Date of last note related to both fund and LP
+    latest_note_id: Optional[int] = None  # ID of the latest related note
+
+
 class GP(SQLModel, table=True):
     """General Partner organization"""
     id: Optional[int] = Field(default=None, primary_key=True)

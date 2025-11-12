@@ -14,7 +14,7 @@ import os
 from database import (
     LP, GP, Person, Note, Todo, Distributor, Fund,
     GPLPLink, GPPersonLink, LPPersonLink, DistributorPersonLink,
-    NoteLPLink, NoteGPLink, NoteFundLink,
+    NoteLPLink, NoteGPLink, NoteFundLink, FundLPInterest,
     get_session, create_db_and_tables
 )
 
@@ -203,6 +203,39 @@ async def search_funds(q: str = ""):
         return query.all()
 
 
+@app.get("/funds/{fund_id}/notes")
+async def get_fund_notes(fund_id: int):
+    """Get all notes associated with a fund"""
+    with get_session() as session:
+        # Query notes through the link table
+        links = session.query(NoteFundLink).filter(NoteFundLink.fund_id == fund_id).all()
+        note_ids = [link.note_id for link in links]
+
+        if not note_ids:
+            return []
+
+        notes = session.query(Note).filter(Note.id.in_(note_ids)).order_by(Note.date.desc()).all()
+        return notes
+
+
+@app.put("/funds/{fund_id}")
+async def update_fund(fund_id: int, fund_update: Fund):
+    """Update fund"""
+    with get_session() as session:
+        fund = session.get(Fund, fund_id)
+        if not fund:
+            raise HTTPException(status_code=404, detail="Fund not found")
+
+        # Update fields
+        for key, value in fund_update.dict(exclude_unset=True).items():
+            if key != 'id' and hasattr(fund, key):
+                setattr(fund, key, value)
+
+        session.commit()
+        session.refresh(fund)
+        return fund
+
+
 # Person endpoints
 @app.get("/people", response_model=List[Person])
 async def get_people():
@@ -310,6 +343,38 @@ async def get_note_funds(note_id: int):
 
         funds = session.query(Fund).filter(Fund.id.in_(fund_ids)).all()
         return funds
+
+
+@app.post("/notes/{note_id}/funds/{fund_id}")
+async def link_note_to_fund(note_id: int, fund_id: int):
+    """Link a note to a fund"""
+    with get_session() as session:
+        # Check if link already exists
+        existing = session.query(NoteFundLink).filter(
+            NoteFundLink.note_id == note_id,
+            NoteFundLink.fund_id == fund_id
+        ).first()
+
+        if existing:
+            return {"success": True, "message": "Link already exists"}
+
+        # Create new link
+        link = NoteFundLink(note_id=note_id, fund_id=fund_id)
+        session.add(link)
+        session.commit()
+        return {"success": True, "message": "Fund linked to note"}
+
+
+@app.delete("/notes/{note_id}/funds/{fund_id}")
+async def unlink_note_from_fund(note_id: int, fund_id: int):
+    """Unlink a note from a fund"""
+    with get_session() as session:
+        session.query(NoteFundLink).filter(
+            NoteFundLink.note_id == note_id,
+            NoteFundLink.fund_id == fund_id
+        ).delete()
+        session.commit()
+        return {"success": True, "message": "Fund unlinked from note"}
 
 
 @app.post("/notes", response_model=Note)
@@ -556,6 +621,116 @@ async def get_gp_tasks(gp_id: int):
         # Then get all tasks associated with those notes
         tasks = session.query(Todo).filter(Todo.note_id.in_(note_ids)).all()
         return tasks
+
+
+# Sales Funnel endpoints
+@app.get("/funds/{fund_id}/sales-funnel")
+async def get_fund_sales_funnel(fund_id: int):
+    """Get sales funnel for a fund with all LPs and their interest levels"""
+    with get_session() as session:
+        # Get all LPs
+        all_lps = session.query(LP).all()
+
+        # Get interest records for this fund
+        interest_records = session.query(FundLPInterest).filter(
+            FundLPInterest.fund_id == fund_id
+        ).all()
+
+        # Create a map of lp_id -> interest data
+        interest_map = {record.lp_id: record for record in interest_records}
+
+        # Build the sales funnel data
+        result = []
+        for lp in all_lps:
+            interest_data = interest_map.get(lp.id)
+
+            # If no interest record exists, create default data
+            if not interest_data:
+                item = {
+                    "fund_id": fund_id,
+                    "lp_id": lp.id,
+                    "lp_name": lp.name,
+                    "interest": "inactive",
+                    "last_contact_date": None,
+                    "latest_note_id": None,
+                    # LP details
+                    "aum_billions": lp.aum_billions,
+                    "location": lp.location,
+                    "priority": lp.priority,
+                    "advisor": lp.advisor,
+                    "type_of_group": lp.type_of_group,
+                    "investment_low": lp.investment_low,
+                    "investment_high": lp.investment_high,
+                }
+            else:
+                item = {
+                    "fund_id": fund_id,
+                    "lp_id": lp.id,
+                    "lp_name": lp.name,
+                    "interest": interest_data.interest,
+                    "last_contact_date": interest_data.last_contact_date.isoformat() if interest_data.last_contact_date else None,
+                    "latest_note_id": interest_data.latest_note_id,
+                    # LP details
+                    "aum_billions": lp.aum_billions,
+                    "location": lp.location,
+                    "priority": lp.priority,
+                    "advisor": lp.advisor,
+                    "type_of_group": lp.type_of_group,
+                    "investment_low": lp.investment_low,
+                    "investment_high": lp.investment_high,
+                }
+
+            result.append(item)
+
+        return result
+
+
+@app.put("/funds/{fund_id}/lps/{lp_id}/interest")
+async def update_lp_interest(fund_id: int, lp_id: int, interest: str):
+    """Update LP interest level for a fund"""
+    with get_session() as session:
+        # Check if record exists
+        record = session.query(FundLPInterest).filter(
+            FundLPInterest.fund_id == fund_id,
+            FundLPInterest.lp_id == lp_id
+        ).first()
+
+        if record:
+            # Update existing record
+            record.interest = interest
+        else:
+            # Create new record
+            record = FundLPInterest(fund_id=fund_id, lp_id=lp_id, interest=interest)
+            session.add(record)
+
+        # Update last_contact_date by finding the latest note related to both fund and LP
+        # Get notes that are linked to both the fund and the LP
+        fund_note_ids = session.query(NoteFundLink.note_id).filter(
+            NoteFundLink.fund_id == fund_id
+        ).all()
+        fund_note_ids = [nid[0] for nid in fund_note_ids]
+
+        lp_note_ids = session.query(NoteLPLink.note_id).filter(
+            NoteLPLink.lp_id == lp_id
+        ).all()
+        lp_note_ids = [nid[0] for nid in lp_note_ids]
+
+        # Find common note IDs
+        common_note_ids = list(set(fund_note_ids) & set(lp_note_ids))
+
+        if common_note_ids:
+            # Get the latest note
+            latest_note = session.query(Note).filter(
+                Note.id.in_(common_note_ids)
+            ).order_by(Note.date.desc()).first()
+
+            if latest_note:
+                record.last_contact_date = latest_note.date
+                record.latest_note_id = latest_note.id
+
+        session.commit()
+        session.refresh(record)
+        return record
 
 
 if __name__ == "__main__":
