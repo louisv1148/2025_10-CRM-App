@@ -184,6 +184,25 @@ async def create_distributor(distributor: Distributor):
         return distributor
 
 
+@app.put("/distributors/{distributor_id}")
+async def update_distributor(distributor_id: int, distributor_update: Distributor):
+    """Update distributor"""
+    with get_session() as session:
+        distributor = session.get(Distributor, distributor_id)
+        if not distributor:
+            raise HTTPException(status_code=404, detail="Distributor not found")
+
+        # Update fields
+        for key, value in distributor_update.dict(exclude_unset=True).items():
+            if key != "id":  # Don't update the ID
+                setattr(distributor, key, value)
+
+        session.add(distributor)
+        session.commit()
+        session.refresh(distributor)
+        return distributor
+
+
 # Fund endpoints
 @app.get("/funds", response_model=List[Fund])
 async def get_funds():
@@ -191,6 +210,30 @@ async def get_funds():
     with get_session() as session:
         funds = session.query(Fund).order_by(Fund.fund_name).all()
         return funds
+
+
+@app.post("/funds", response_model=Fund)
+async def create_fund(fund: Fund):
+    """Create new fund"""
+    with get_session() as session:
+        # Convert date strings and empty strings to proper datetime objects or None
+        date_fields = ['launch', 'final_close', 'roadshow_date']
+        for field in date_fields:
+            if hasattr(fund, field):
+                value = getattr(fund, field)
+                if value == '' or value is None:
+                    setattr(fund, field, None)
+                elif isinstance(value, str):
+                    try:
+                        from datetime import datetime
+                        setattr(fund, field, datetime.fromisoformat(value))
+                    except (ValueError, AttributeError):
+                        setattr(fund, field, None)
+
+        session.add(fund)
+        session.commit()
+        session.refresh(fund)
+        return fund
 
 
 @app.get("/funds/search", response_model=List[Fund])
@@ -229,6 +272,16 @@ async def update_fund(fund_id: int, fund_update: Fund):
         # Update fields
         for key, value in fund_update.dict(exclude_unset=True).items():
             if key != 'id' and hasattr(fund, key):
+                # Convert date strings and empty strings to proper datetime objects or None
+                if key in ['launch', 'final_close', 'roadshow_date']:
+                    if value == '' or value is None:
+                        value = None
+                    elif isinstance(value, str):
+                        try:
+                            from datetime import datetime
+                            value = datetime.fromisoformat(value)
+                        except (ValueError, AttributeError):
+                            value = None
                 setattr(fund, key, value)
 
         session.commit()
@@ -644,41 +697,41 @@ async def get_fund_sales_funnel(fund_id: int):
         for lp in all_lps:
             interest_data = interest_map.get(lp.id)
 
-            # If no interest record exists, create default data
-            if not interest_data:
-                item = {
-                    "fund_id": fund_id,
-                    "lp_id": lp.id,
-                    "lp_name": lp.name,
-                    "interest": "inactive",
-                    "last_contact_date": None,
-                    "latest_note_id": None,
-                    # LP details
-                    "aum_billions": lp.aum_billions,
-                    "location": lp.location,
-                    "priority": lp.priority,
-                    "advisor": lp.advisor,
-                    "type_of_group": lp.type_of_group,
-                    "investment_low": lp.investment_low,
-                    "investment_high": lp.investment_high,
-                }
-            else:
-                item = {
-                    "fund_id": fund_id,
-                    "lp_id": lp.id,
-                    "lp_name": lp.name,
-                    "interest": interest_data.interest,
-                    "last_contact_date": interest_data.last_contact_date.isoformat() if interest_data.last_contact_date else None,
-                    "latest_note_id": interest_data.latest_note_id,
-                    # LP details
-                    "aum_billions": lp.aum_billions,
-                    "location": lp.location,
-                    "priority": lp.priority,
-                    "advisor": lp.advisor,
-                    "type_of_group": lp.type_of_group,
-                    "investment_low": lp.investment_low,
-                    "investment_high": lp.investment_high,
-                }
+            # Find the most recent note related to BOTH this LP and this fund
+            # If no such note exists, leave the fields empty (None)
+            latest_note = (
+                session.query(Note)
+                .join(NoteLPLink, Note.id == NoteLPLink.note_id)
+                .join(NoteFundLink, Note.id == NoteFundLink.note_id)
+                .filter(NoteLPLink.lp_id == lp.id)
+                .filter(NoteFundLink.fund_id == fund_id)
+                .order_by(Note.date.desc())
+                .first()
+            )
+
+            # Extract note info (will be None if no note found)
+            last_contact_date = latest_note.date if latest_note else None
+            latest_note_id = latest_note.id if latest_note else None
+
+            # Determine interest level
+            interest_level = interest_data.interest if interest_data else "inactive"
+
+            item = {
+                "fund_id": fund_id,
+                "lp_id": lp.id,
+                "lp_name": lp.name,
+                "interest": interest_level,
+                "last_contact_date": last_contact_date.isoformat() if last_contact_date else None,
+                "latest_note_id": latest_note_id,
+                # LP details
+                "aum_billions": lp.aum_billions,
+                "location": lp.location,
+                "priority": lp.priority,
+                "advisor": lp.advisor,
+                "type_of_group": lp.type_of_group,
+                "investment_low": lp.investment_low,
+                "investment_high": lp.investment_high,
+            }
 
             result.append(item)
 

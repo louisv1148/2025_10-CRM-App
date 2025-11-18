@@ -1,16 +1,26 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from "svelte";
   import type { Fund, Note } from "../lib/api";
-  import { fetchFundNotes, updateFund, fetchGPs, type GP } from "../lib/api";
+  import { fetchFundNotes, updateFund, createFund, fetchGPs, type GP } from "../lib/api";
   import NoteDetailCard from "./NoteDetailCard.svelte";
   import SalesFunnel from "./SalesFunnel.svelte";
 
   export let fund: Fund;
+  export let isNew: boolean = false;
 
   const dispatch = createEventDispatcher();
 
-  let isEditing = false;
+  let isEditing = isNew;
   let editedFund: Partial<Fund> = { ...fund };
+
+  // React to prop changes from parent (e.g., after save)
+  $: if (!isEditing && fund) {
+    console.log("Reactive update triggered - fund changed:", fund);
+    editedFund = { ...fund };
+  }
+
+  // Also watch fund directly for debugging
+  $: console.log("fund prop updated:", fund?.fund_name, fund?.geography, fund?.status);
 
   let showNotes = false;
   let showRoadshows = false;
@@ -29,7 +39,17 @@
   const statusOptions = ["premarketing", "fundraising", "semiliquid"];
 
   onMount(async () => {
-    if (!fund.id) return;
+    // Skip loading related data if this is a new fund
+    if (isNew || !fund.id) {
+      // Still fetch GPs for the dropdown
+      try {
+        gps = await fetchGPs();
+      } catch (err) {
+        console.error("Failed to fetch GPs:", err);
+      }
+      loading = false;
+      return;
+    }
 
     try {
       // Fetch notes and GPs in parallel
@@ -74,16 +94,35 @@
   }
 
   async function saveEdit() {
-    if (!fund.id) return;
+    console.log("saveEdit called - isNew:", isNew, "fund.id:", fund.id);
+    console.log("editedFund data:", editedFund);
 
     try {
-      const updated = await updateFund(fund.id, editedFund);
-      fund = updated;
-      isEditing = false;
-      dispatch("updated", updated);
+      if (isNew) {
+        // Creating a new fund
+        console.log("Creating new fund...");
+        const created = await createFund(editedFund as Fund);
+        console.log("Fund created:", created);
+        isEditing = false;
+        dispatch("created", created);
+        dispatch("close"); // Close the modal after creating
+      } else {
+        // Updating an existing fund
+        if (!fund.id) {
+          console.error("No fund.id available for update");
+          alert("Cannot update fund: No ID available");
+          return;
+        }
+        console.log("Updating fund ID:", fund.id, "with data:", editedFund);
+        const updated = await updateFund(fund.id, editedFund);
+        console.log("Fund updated, response:", updated);
+        isEditing = false;
+        dispatch("updated", updated);
+      }
     } catch (err) {
-      console.error("Failed to update fund:", err);
-      alert("Failed to update fund");
+      console.error(`Failed to ${isNew ? 'create' : 'update'} fund:`, err);
+      const errorMessage = err instanceof Error ? err.message : `Failed to ${isNew ? 'create' : 'update'} fund`;
+      alert(`Error: ${errorMessage}\n\nPlease check the browser console for details.`);
     }
   }
 
@@ -106,11 +145,11 @@
 <div class="modal-overlay" on:click={close}>
   <div class="modal-card" on:click|stopPropagation>
     <div class="card-header">
-      <h2>{fund.fund_name}</h2>
+      <h2>{isNew ? 'New Fund' : fund.fund_name}</h2>
       <div class="actions">
         {#if isEditing}
-          <button class="action-btn save" on:click={saveEdit}>Save</button>
-          <button class="action-btn cancel" on:click={cancelEdit}>Cancel</button>
+          <button class="action-btn save" on:click={saveEdit}>{isNew ? 'Create' : 'Save'}</button>
+          <button class="action-btn cancel" on:click={isNew ? close : cancelEdit}>Cancel</button>
         {:else}
           <button class="action-btn edit" on:click={handleEdit}>Edit</button>
         {/if}
@@ -122,6 +161,13 @@
       <!-- Main Information Section -->
       <div class="info-section">
         <div class="info-grid">
+          {#if isEditing}
+            <div class="info-item">
+              <label>Fund Name</label>
+              <input type="text" bind:value={editedFund.fund_name} placeholder="Fund Name" />
+            </div>
+          {/if}
+
           <div class="info-item">
             <label>Geography</label>
             {#if isEditing}
@@ -156,7 +202,16 @@
 
           <div class="info-item">
             <label>GP</label>
-            <div class="value">{gpName}</div>
+            {#if isEditing}
+              <select bind:value={editedFund.gp_notion_id}>
+                <option value="">Select GP...</option>
+                {#each gps as gp}
+                  <option value={gp.notion_id}>{gp.name}</option>
+                {/each}
+              </select>
+            {:else}
+              <div class="value">{gpName}</div>
+            {/if}
           </div>
 
           <div class="info-item">

@@ -103,9 +103,31 @@ export interface Fund {
   gp_notion_id?: string;
 }
 
+export interface SalesFunnelItem {
+  fund_id: number;
+  lp_id: number;
+  lp_name: string;
+  interest: string;
+  last_contact_date?: string;
+  latest_note_id?: number;
+  // LP details
+  aum_billions?: number;
+  location?: string;
+  priority?: string;
+  advisor?: string;
+  type_of_group?: string;
+  investment_low?: number;
+  investment_high?: number;
+}
+
 // API functions - LPs
 export async function fetchLPs(): Promise<LP[]> {
   const response = await fetch(`${API_BASE_URL}/lps`);
+  return response.json();
+}
+
+export async function fetchLP(id: number): Promise<LP> {
+  const response = await fetch(`${API_BASE_URL}/lps/${id}`);
   return response.json();
 }
 
@@ -142,6 +164,11 @@ export async function fetchGPs(): Promise<GP[]> {
   return response.json();
 }
 
+export async function fetchGP(id: number): Promise<GP> {
+  const response = await fetch(`${API_BASE_URL}/gps/${id}`);
+  return response.json();
+}
+
 export async function searchGPs(query: string): Promise<GP[]> {
   const response = await fetch(`${API_BASE_URL}/gps/search?q=${encodeURIComponent(query)}`);
   return response.json();
@@ -175,8 +202,26 @@ export async function fetchFunds(): Promise<Fund[]> {
   return response.json();
 }
 
+export async function fetchFund(id: number): Promise<Fund> {
+  const response = await fetch(`${API_BASE_URL}/funds/${id}`);
+  return response.json();
+}
+
 export async function searchFunds(query: string): Promise<Fund[]> {
   const response = await fetch(`${API_BASE_URL}/funds/search?q=${encodeURIComponent(query)}`);
+  return response.json();
+}
+
+export async function createFund(fund: Fund): Promise<Fund> {
+  const response = await fetch(`${API_BASE_URL}/funds`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fund),
+  });
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to create fund: ${error}`);
+  }
   return response.json();
 }
 
@@ -262,6 +307,30 @@ export async function linkNoteToFund(noteId: number, fundId: number): Promise<vo
 
 export async function unlinkNoteFromFund(noteId: number, fundId: number): Promise<void> {
   await fetch(`${API_BASE_URL}/notes/${noteId}/funds/${fundId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function linkNoteToLP(noteId: number, lpId: number): Promise<void> {
+  await fetch(`${API_BASE_URL}/notes/${noteId}/lps/${lpId}`, {
+    method: "POST",
+  });
+}
+
+export async function unlinkNoteFromLP(noteId: number, lpId: number): Promise<void> {
+  await fetch(`${API_BASE_URL}/notes/${noteId}/lps/${lpId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function linkNoteToGP(noteId: number, gpId: number): Promise<void> {
+  await fetch(`${API_BASE_URL}/notes/${noteId}/gps/${gpId}`, {
+    method: "POST",
+  });
+}
+
+export async function unlinkNoteFromGP(noteId: number, gpId: number): Promise<void> {
+  await fetch(`${API_BASE_URL}/notes/${noteId}/gps/${gpId}`, {
     method: "DELETE",
   });
 }
@@ -372,4 +441,47 @@ export async function fetchGPNotes(gpId: number): Promise<Note[]> {
 export async function fetchGPTasks(gpId: number): Promise<Todo[]> {
   const response = await fetch(`${API_BASE_URL}/gps/${gpId}/tasks`);
   return response.json();
+}
+
+// Fund relationship functions
+export async function fetchFundNotes(fundId: number): Promise<Note[]> {
+  const response = await fetch(`${API_BASE_URL}/funds/${fundId}/notes`);
+  return response.json();
+}
+
+export async function updateFund(fundId: number, fund: Partial<Fund>): Promise<Fund> {
+  console.log("updateFund API call - fundId:", fundId, "data:", fund);
+  console.log("Request URL:", `${API_BASE_URL}/funds/${fundId}`);
+  console.log("Request body:", JSON.stringify(fund));
+
+  const response = await fetch(`${API_BASE_URL}/funds/${fundId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fund),
+  });
+
+  console.log("Response status:", response.status);
+  console.log("Response ok:", response.ok);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Response error:", errorText);
+    throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+  }
+
+  const result = await response.json();
+  console.log("updateFund result:", result);
+  return result;
+}
+
+// Sales Funnel functions
+export async function fetchFundSalesFunnel(fundId: number): Promise<SalesFunnelItem[]> {
+  const response = await fetch(`${API_BASE_URL}/funds/${fundId}/sales-funnel`);
+  return response.json();
+}
+
+export async function updateLPInterest(fundId: number, lpId: number, interest: string): Promise<void> {
+  await fetch(`${API_BASE_URL}/funds/${fundId}/lps/${lpId}/interest?interest=${encodeURIComponent(interest)}`, {
+    method: "PUT",
+  });
 }
