@@ -243,6 +243,55 @@ class Fund(SQLModel, table=True):
     # Many-to-many with Note handled via NoteFundLink
 
 
+class Roadshow(SQLModel, table=True):
+    """Roadshow event - represents a specific fundraising roadshow for a fund"""
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+    # Name/identifier for this roadshow
+    name: str = Field(index=True)  # e.g., "Q1 2025 Mexico Roadshow"
+
+    # Core relationship - each roadshow is for ONE fund
+    fund_id: int = Field(foreign_key="fund.id")
+
+    # Travel details
+    arrival: Optional[datetime] = None  # First arrival date (syncs to fund.roadshow_date)
+    arrival_city: Optional[str] = None  # First city
+    second_city: Optional[str] = None  # Second city visited
+    second_arrival: Optional[datetime] = None  # Second city arrival date
+    departure: Optional[datetime] = None  # Departure date
+
+    # Logistics status (Needed=red, Done=green, None=green)
+    lv_flight: str = "None"  # Options: Needed, Done, None
+    lv_hotel: str = "None"  # Options: Needed, Done, None
+    mty_driver: str = "None"  # Options: Needed, Done, None
+    cdmx_driver: str = "None"  # Options: Needed, Done, None
+
+    # Image storage for flight details
+    flight_images: Optional[str] = None  # JSON array of base64 image data URLs
+
+    # General notes about this roadshow
+    notes: Optional[str] = None
+
+
+class RoadshowLPStatus(SQLModel, table=True):
+    """Track LP meeting status for each Roadshow (like FundLPInterest but for roadshows)"""
+    roadshow_id: int = Field(foreign_key="roadshow.id", primary_key=True)
+    lp_id: int = Field(foreign_key="lp.id", primary_key=True)
+
+    # Meeting status levels for this roadshow
+    status: str = "inactive"  # inactive, declined, offered, interested, confirmed
+
+    # Auto-updated fields
+    last_contact_date: Optional[datetime] = None  # Date of last note related to both roadshow and LP
+    latest_note_id: Optional[int] = None  # ID of the latest related note
+
+
+class NoteRoadshowLink(SQLModel, table=True):
+    """Link table for Note-Roadshow many-to-many relationship"""
+    note_id: int = Field(foreign_key="note.id", primary_key=True)
+    roadshow_id: int = Field(foreign_key="roadshow.id", primary_key=True)
+
+
 # Database setup
 DB_PATH = os.path.join(os.path.dirname(__file__), "../../db/crm.db")
 DATABASE_URL = f"sqlite:///{DB_PATH}"

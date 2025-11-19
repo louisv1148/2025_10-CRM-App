@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fetchFundSalesFunnel, updateLPInterest, updateLP, type SalesFunnelItem } from "../lib/api";
+  import { fetchFundSalesFunnel, updateLPInterest, updateLP, fetchLP, deleteLP, fetchNote, type SalesFunnelItem, type LP, type Note } from "../lib/api";
   import NoteDetailCard from "./NoteDetailCard.svelte";
+  import LPDetailCard from "./LPDetailCard.svelte";
 
   export let fundId: number;
 
@@ -22,8 +23,12 @@
   ];
 
   let expandedStages: Set<string> = new Set(["interested"]);
-  let selectedNoteId: number | null = null;
+  let selectedNote: Note | null = null;
   let showNoteDetail = false;
+
+  // LP Detail card state
+  let selectedLP: LP | null = null;
+  let showLPDetail = false;
 
   // Sort state
   let sortFields: string[] = [];
@@ -250,14 +255,72 @@
     }
   }
 
-  function openNote(noteId: number) {
-    selectedNoteId = noteId;
-    showNoteDetail = true;
+  async function openNote(noteId: number) {
+    try {
+      selectedNote = await fetchNote(noteId);
+      showNoteDetail = true;
+    } catch (err) {
+      console.error("Failed to fetch note:", err);
+      alert("Failed to load note");
+    }
   }
 
   function closeNoteDetail() {
     showNoteDetail = false;
-    selectedNoteId = null;
+    selectedNote = null;
+  }
+
+  async function handleNoteUpdated() {
+    // Refresh the funnel data to update last contact dates
+    await loadFunnelData();
+  }
+
+  // LP Detail card functions
+  function openLPDetail(item: SalesFunnelItem) {
+    // Convert SalesFunnelItem to LP object
+    selectedLP = {
+      id: item.lp_id,
+      name: item.lp_name,
+      aum_billions: item.aum_billions,
+      location: item.location,
+      priority: item.priority,
+      advisor: item.advisor,
+      type_of_group: item.type_of_group,
+      investment_low: item.investment_low,
+      investment_high: item.investment_high
+    };
+    showLPDetail = true;
+  }
+
+  function closeLPDetail() {
+    selectedLP = null;
+    showLPDetail = false;
+  }
+
+  async function handleLPUpdated(event: CustomEvent) {
+    console.log("handleLPUpdated called, event detail:", event.detail);
+
+    const updatedLP = event.detail;
+    if (!updatedLP?.id) return;
+
+    // Update selectedLP to reflect changes in the detail card
+    selectedLP = updatedLP;
+
+    // Refresh the funnel data to get all updated fields
+    await loadFunnelData();
+  }
+
+  async function handleLPDelete(event: CustomEvent) {
+    const lpId = event.detail;
+    try {
+      await deleteLP(lpId);
+      // Refresh the funnel data
+      await loadFunnelData();
+      closeLPDetail();
+    } catch (err) {
+      console.error("Failed to delete LP:", err);
+      alert("Failed to delete LP");
+    }
   }
 
   function formatDate(dateStr: string | undefined): string {
@@ -467,72 +530,74 @@
               {#if getStageItems(stage.key).length === 0}
                 <div class="no-items">No LPs in this stage</div>
               {:else}
-                <table class="lps-table">
-                  <thead>
-                    <tr>
-                      <th class="name-col">LP Name</th>
-                      {#each columnOrder as column}
-                        {#if visibleColumns[column.key]}
-                          <th>{column.label}</th>
-                        {/if}
-                      {/each}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {#each getStageItems(stage.key) as item}
+                <div class="table-wrapper">
+                  <table class="lps-table">
+                    <thead>
                       <tr>
-                        <td class="lp-name">{item.lp_name}</td>
+                        <th class="name-col">LP Name</th>
                         {#each columnOrder as column}
                           {#if visibleColumns[column.key]}
-                            <td>
-                              {#if column.key === 'priority'}
-                                <input
-                                  type="text"
-                                  class="priority-input"
-                                  value={item.priority || ''}
-                                  on:blur={(e) => updatePriority(item.lp_id, e.currentTarget.value)}
-                                  on:keydown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      e.currentTarget.blur();
-                                    }
-                                  }}
-                                  placeholder="-"
-                                />
-                              {:else if column.key === 'stage'}
-                                <select
-                                  class="interest-select"
-                                  value={item.interest}
-                                  on:change={(e) => changeInterest(item.lp_id, e.currentTarget.value)}
-                                >
-                                  <option value="inactive">Inactive</option>
-                                  <option value="commitment">Commitment</option>
-                                  <option value="due_diligence">Due Diligence</option>
-                                  <option value="interested">Interested</option>
-                                  <option value="meeting">Meeting</option>
-                                  <option value="meeting_offered">Meeting Offered</option>
-                                  <option value="no_reply">No reply</option>
-                                  <option value="low_probability">Low Probability</option>
-                                </select>
-                              {:else if column.key === 'notes_db'}
-                                {#if item.latest_note_id}
-                                  <button class="note-link" on:click={() => openNote(item.latest_note_id)}>
-                                    View Note
-                                  </button>
-                                {:else}
-                                  -
-                                {/if}
-                              {:else if column.key === 'note_summary'}
-                                <span class="note-summary">Coming soon...</span>
-                              {:else}
-                                {getCellValue(item, column.key)}
-                              {/if}
-                            </td>
+                            <th>{column.label}</th>
                           {/if}
                         {/each}
                       </tr>
-                    {/each}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {#each getStageItems(stage.key) as item}
+                        <tr>
+                          <td class="lp-name clickable" on:click={() => openLPDetail(item)}>{item.lp_name}</td>
+                          {#each columnOrder as column}
+                            {#if visibleColumns[column.key]}
+                              <td>
+                                {#if column.key === 'priority'}
+                                  <input
+                                    type="text"
+                                    class="priority-input"
+                                    value={item.priority || ''}
+                                    on:blur={(e) => updatePriority(item.lp_id, e.currentTarget.value)}
+                                    on:keydown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.currentTarget.blur();
+                                      }
+                                    }}
+                                    placeholder="-"
+                                  />
+                                {:else if column.key === 'stage'}
+                                  <select
+                                    class="interest-select"
+                                    value={item.interest}
+                                    on:change={(e) => changeInterest(item.lp_id, e.currentTarget.value)}
+                                  >
+                                    <option value="inactive">Inactive</option>
+                                    <option value="commitment">Commitment</option>
+                                    <option value="due_diligence">Due Diligence</option>
+                                    <option value="interested">Interested</option>
+                                    <option value="meeting">Meeting</option>
+                                    <option value="meeting_offered">Meeting Offered</option>
+                                    <option value="no_reply">No reply</option>
+                                    <option value="low_probability">Low Probability</option>
+                                  </select>
+                                {:else if column.key === 'notes_db'}
+                                  {#if item.latest_note_id}
+                                    <button class="note-link" on:click={() => openNote(item.latest_note_id)}>
+                                      View Note
+                                    </button>
+                                  {:else}
+                                    -
+                                  {/if}
+                                {:else if column.key === 'note_summary'}
+                                  <span class="note-summary">Coming soon...</span>
+                                {:else}
+                                  {getCellValue(item, column.key)}
+                                {/if}
+                              </td>
+                            {/if}
+                          {/each}
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
               {/if}
             </div>
           {/if}
@@ -542,11 +607,23 @@
   {/if}
 </div>
 
-{#if showNoteDetail && selectedNoteId}
-  <div class="note-placeholder">
-    <p>Note detail card for note ID: {selectedNoteId}</p>
-    <button on:click={closeNoteDetail}>Close</button>
-  </div>
+<!-- Note Detail Card Modal -->
+{#if showNoteDetail && selectedNote}
+  <NoteDetailCard
+    note={selectedNote}
+    on:close={closeNoteDetail}
+    on:updated={handleNoteUpdated}
+  />
+{/if}
+
+<!-- LP Detail Card Modal -->
+{#if showLPDetail && selectedLP}
+  <LPDetailCard
+    lp={selectedLP}
+    on:close={closeLPDetail}
+    on:updated={handleLPUpdated}
+    on:delete={handleLPDelete}
+  />
 {/if}
 
 <style>
@@ -625,7 +702,7 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     z-index: 1000;
     min-width: 250px;
-    max-height: 400px;
+    max-height: 70vh;
     overflow-y: auto;
   }
 
@@ -854,8 +931,14 @@
     font-style: italic;
   }
 
+  .table-wrapper {
+    overflow-x: auto;
+    max-width: 100%;
+  }
+
   .lps-table {
     width: 100%;
+    min-width: 800px;
     border-collapse: collapse;
     font-size: 0.9rem;
   }
@@ -892,6 +975,16 @@
   .lp-name {
     font-weight: 500;
     color: #2c3e50;
+  }
+
+  .lp-name.clickable {
+    cursor: pointer;
+    transition: color 0.2s;
+  }
+
+  .lp-name.clickable:hover {
+    color: #3498db;
+    text-decoration: underline;
   }
 
   .priority-input {

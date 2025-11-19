@@ -1,14 +1,20 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import type { Person } from "../lib/api";
-  import { updatePerson } from "../lib/api";
+  import { updatePerson, createPerson } from "../lib/api";
 
   export let person: Person;
+  export let isNew: boolean = false;
 
   const dispatch = createEventDispatcher();
 
-  let isEditing = false;
+  let isEditing = isNew;
   let editedPerson: Person = { ...person };
+
+  // React to prop changes from parent (e.g., after save)
+  $: if (!isEditing && person) {
+    editedPerson = { ...person };
+  }
 
   function close() {
     dispatch("close");
@@ -25,15 +31,23 @@
   }
 
   async function saveEdit() {
-    if (!person.id) return;
     try {
-      const updated = await updatePerson(person.id, editedPerson);
-      person = updated;
-      isEditing = false;
-      dispatch("updated", updated);
+      if (isNew) {
+        // Creating a new person
+        const created = await createPerson(editedPerson);
+        isEditing = false;
+        dispatch("created", created);
+        dispatch("close"); // Close the modal after creating
+      } else {
+        // Updating an existing person
+        if (!person.id) return;
+        const updated = await updatePerson(person.id, editedPerson);
+        isEditing = false;
+        dispatch("updated", updated);
+      }
     } catch (err) {
-      console.error("Failed to update person:", err);
-      alert("Failed to update person");
+      console.error(`Failed to ${isNew ? 'create' : 'update'} person:`, err);
+      alert(`Failed to ${isNew ? 'create' : 'update'} person`);
     }
   }
 </script>
@@ -41,11 +55,11 @@
 <div class="modal-overlay" on:click={close}>
   <div class="modal-card" on:click|stopPropagation>
     <div class="card-header">
-      <h2>{person.name}</h2>
+      <h2>{isNew ? 'New Person' : person.name}</h2>
       <div class="actions">
         {#if isEditing}
-          <button class="action-btn save" on:click={saveEdit}>Save</button>
-          <button class="action-btn cancel" on:click={cancelEdit}>Cancel</button>
+          <button class="action-btn save" on:click={saveEdit}>{isNew ? 'Create' : 'Save'}</button>
+          <button class="action-btn cancel" on:click={isNew ? close : cancelEdit}>Cancel</button>
         {:else}
           <button class="action-btn edit" on:click={handleEdit}>Edit</button>
         {/if}
@@ -57,6 +71,13 @@
       <!-- Main Information Section -->
       <div class="info-section">
         <div class="info-grid">
+          {#if isEditing}
+            <div class="info-item">
+              <label>Name</label>
+              <input type="text" bind:value={editedPerson.name} placeholder="Person Name" />
+            </div>
+          {/if}
+
           {#if isEditing || person.position}
             <div class="info-item">
               <label>Position</label>

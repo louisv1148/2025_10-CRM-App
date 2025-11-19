@@ -1,16 +1,22 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from "svelte";
   import type { GP, Person, Note, Todo } from "../lib/api";
-  import { fetchGPPeople, fetchGPNotes, fetchGPTasks, updateGP } from "../lib/api";
+  import { fetchGPPeople, fetchGPNotes, fetchGPTasks, updateGP, createGP } from "../lib/api";
   import NoteDetailCard from "./NoteDetailCard.svelte";
   import PersonDetailCard from "./PersonDetailCard.svelte";
 
   export let gp: GP;
+  export let isNew: boolean = false;
 
   const dispatch = createEventDispatcher();
 
-  let isEditing = false;
+  let isEditing = isNew;
   let editedGP: GP = { ...gp };
+
+  // React to prop changes from parent (e.g., after save)
+  $: if (!isEditing && gp) {
+    editedGP = { ...gp };
+  }
 
   let showPeople = false;
   let showNotes = false;
@@ -28,7 +34,11 @@
   let showPersonDetail = false;
 
   onMount(async () => {
-    if (!gp.id) return;
+    // Skip loading related data if this is a new GP
+    if (isNew || !gp.id) {
+      loading = false;
+      return;
+    }
 
     try {
       // Fetch all related data in parallel
@@ -80,16 +90,23 @@
   }
 
   async function saveEdit() {
-    if (!gp.id) return;
-
     try {
-      const updated = await updateGP(gp.id, editedGP);
-      gp = updated;
-      isEditing = false;
-      dispatch("updated", updated);
+      if (isNew) {
+        // Creating a new GP
+        const created = await createGP(editedGP);
+        isEditing = false;
+        dispatch("created", created);
+        dispatch("close"); // Close the modal after creating
+      } else {
+        // Updating an existing GP
+        if (!gp.id) return;
+        const updated = await updateGP(gp.id, editedGP);
+        isEditing = false;
+        dispatch("updated", updated);
+      }
     } catch (err) {
-      console.error("Failed to update GP:", err);
-      alert("Failed to update GP");
+      console.error(`Failed to ${isNew ? 'create' : 'update'} GP:`, err);
+      alert(`Failed to ${isNew ? 'create' : 'update'} GP`);
     }
   }
 
@@ -128,11 +145,11 @@
 <div class="modal-overlay" on:click={close}>
   <div class="modal-card" on:click|stopPropagation>
     <div class="card-header">
-      <h2>{gp.name}</h2>
+      <h2>{isNew ? 'New GP' : gp.name}</h2>
       <div class="actions">
         {#if isEditing}
-          <button class="action-btn save" on:click={saveEdit}>Save</button>
-          <button class="action-btn cancel" on:click={cancelEdit}>Cancel</button>
+          <button class="action-btn save" on:click={saveEdit}>{isNew ? 'Create' : 'Save'}</button>
+          <button class="action-btn cancel" on:click={isNew ? close : cancelEdit}>Cancel</button>
         {:else}
           <button class="action-btn edit" on:click={handleEdit}>Edit</button>
           <button class="action-btn delete" on:click={handleDelete}>Delete</button>
@@ -145,6 +162,13 @@
       <!-- Main Information Section -->
       <div class="info-section">
         <div class="info-grid">
+          {#if isEditing}
+            <div class="info-item">
+              <label>Name</label>
+              <input type="text" bind:value={editedGP.name} placeholder="GP Name" />
+            </div>
+          {/if}
+
           <div class="info-item">
             <label>Location</label>
             {#if isEditing}

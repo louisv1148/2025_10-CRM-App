@@ -1,23 +1,26 @@
 <script lang="ts">
-  import { selectedGP, gps } from "../lib/stores";
+  import { selectedGPs, selectedParticipants, gps } from "../lib/stores";
   import { searchGPs, createGP, searchPeople, createPerson, type GP, type Person } from "../lib/api";
 
   let gpSearchQuery = "";
   let gpSearchResults: GP[] = [];
   let gpShowDropdown = false;
   let gpSearchTimeout: ReturnType<typeof setTimeout>;
-  let selectedGPObject: GP | null = null;
+  let selectedGPObjects: GP[] = [];
 
   let newGPName = "";
 
-  // Reactive: Update selectedGPObject when selectedGP changes
-  $: if ($selectedGP) {
-    const found = $gps.find(gp => gp.id === $selectedGP);
-    if (found) {
-      selectedGPObject = found;
+  // Reactive: Update selectedGPObjects when selectedGPs changes
+  $: {
+    selectedGPObjects = $selectedGPs
+      .map(id => $gps.find(gp => gp.id === id))
+      .filter((gp): gp is GP => gp !== undefined);
+  }
+
+  function removeGP(gpId: number | undefined) {
+    if (gpId) {
+      $selectedGPs = $selectedGPs.filter(id => id !== gpId);
     }
-  } else {
-    selectedGPObject = null;
   }
 
   // Participants
@@ -25,7 +28,7 @@
   let participantSearchResults: Person[] = [];
   let participantShowDropdown = false;
   let participantSearchTimeout: ReturnType<typeof setTimeout>;
-  let selectedParticipants: Person[] = [];
+  let participantObjects: Person[] = []; // Local cache of full Person objects
   let newParticipantName = "";
 
   // GP search-as-you-type
@@ -49,21 +52,17 @@
   }
 
   function selectGP(gp: GP) {
-    $selectedGP = gp.id || null;
-    selectedGPObject = gp;
+    if (gp.id && !$selectedGPs.includes(gp.id)) {
+      $selectedGPs = [...$selectedGPs, gp.id];
+    }
     gpSearchQuery = "";
     gpShowDropdown = false;
   }
 
-  function clearGP() {
-    $selectedGP = null;
+  function clearGPSearch() {
     gpSearchQuery = "";
     gpSearchResults = [];
-  }
-
-  function removeGP() {
-    $selectedGP = null;
-    selectedGPObject = null;
+    gpShowDropdown = false;
   }
 
   async function addGP() {
@@ -94,8 +93,9 @@
   }
 
   function selectParticipant(person: Person) {
-    if (!selectedParticipants.find(p => p.id === person.id)) {
-      selectedParticipants = [...selectedParticipants, person];
+    if (person.id && !$selectedParticipants.includes(person.id)) {
+      $selectedParticipants = [...$selectedParticipants, person.id];
+      participantObjects = [...participantObjects, person];
     }
     participantSearchQuery = "";
     participantShowDropdown = false;
@@ -103,20 +103,24 @@
 
   function removeParticipant(personId: number | undefined) {
     if (personId) {
-      selectedParticipants = selectedParticipants.filter(p => p.id !== personId);
+      $selectedParticipants = $selectedParticipants.filter(id => id !== personId);
+      participantObjects = participantObjects.filter(p => p.id !== personId);
     }
   }
 
   async function addParticipant() {
-    if (newParticipantName.trim() && $selectedGP) {
+    if (newParticipantName.trim() && $selectedGPs.length > 0) {
       try {
         const newPerson = await createPerson({
           name: newParticipantName.trim(),
           role: "GP",
           org_type: "gp",
-          org_id: $selectedGP
+          org_id: $selectedGPs[0]  // Associate with first selected GP
         });
-        selectedParticipants = [...selectedParticipants, newPerson];
+        if (newPerson.id) {
+          $selectedParticipants = [...$selectedParticipants, newPerson.id];
+          participantObjects = [...participantObjects, newPerson];
+        }
         newParticipantName = "";
       } catch (err) {
         console.error("Failed to create participant:", err);
@@ -132,14 +136,14 @@
     <div class="search-input-wrapper">
       <input
         type="text"
-        placeholder="Search GP..."
+        placeholder="Search and select GPs..."
         bind:value={gpSearchQuery}
         on:input={handleGPSearch}
         on:focus={() => gpShowDropdown = gpSearchResults.length > 0}
         on:blur={() => setTimeout(() => gpShowDropdown = false, 200)}
       />
-      {#if $selectedGP && gpSearchQuery}
-        <button class="clear-btn" on:click={clearGP}>✕</button>
+      {#if gpSearchQuery}
+        <button class="clear-btn" on:click={clearGPSearch}>✕</button>
       {/if}
     </div>
 
@@ -164,13 +168,15 @@
     <button on:click={addGP}>Add</button>
   </div>
 
-  <!-- Selected GP Display -->
-  {#if selectedGPObject}
+  <!-- Selected GPs Display -->
+  {#if selectedGPObjects.length > 0}
     <div class="selected-list">
-      <div class="selected-item">
-        <span class="participant-name">{selectedGPObject.name}</span>
-        <button class="remove-btn" on:click={removeGP}>✕</button>
-      </div>
+      {#each selectedGPObjects as gp}
+        <div class="selected-item">
+          <span class="participant-name">{gp.name}</span>
+          <button class="remove-btn" on:click={() => removeGP(gp.id)}>✕</button>
+        </div>
+      {/each}
     </div>
   {/if}
 
@@ -211,7 +217,7 @@
     </div>
 
     <div class="selected-list">
-      {#each selectedParticipants as participant}
+      {#each participantObjects as participant}
         <div class="selected-item">
           <span class="participant-name">{participant.name}</span>
           <button class="remove-btn" on:click={() => removeParticipant(participant.id)}>✕</button>

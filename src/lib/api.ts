@@ -120,6 +120,40 @@ export interface SalesFunnelItem {
   investment_high?: number;
 }
 
+export interface Roadshow {
+  id?: number;
+  name: string; // e.g., "Q1 2025 Mexico Roadshow"
+  fund_id: number; // Required: each roadshow is for ONE fund
+  arrival?: string;
+  arrival_city?: string;
+  second_city?: string;
+  second_arrival?: string;
+  departure?: string;
+  lv_flight: string; // Needed, Done, None
+  lv_hotel: string; // Needed, Done, None
+  mty_driver: string; // Needed, Done, None
+  cdmx_driver: string; // Needed, Done, None
+  flight_images?: string; // JSON array of image data URLs
+  notes?: string;
+}
+
+export interface RoadshowLPStatus {
+  roadshow_id: number;
+  lp_id: number;
+  lp_name: string;
+  status: string; // inactive, declined, offered, interested, confirmed
+  last_contact_date?: string;
+  latest_note_id?: number;
+  // LP details (same as SalesFunnelItem)
+  aum_billions?: number;
+  location?: string;
+  priority?: string;
+  advisor?: string;
+  type_of_group?: string;
+  investment_low?: number;
+  investment_high?: number;
+}
+
 // API functions - LPs
 export async function fetchLPs(): Promise<LP[]> {
   const response = await fetch(`${API_BASE_URL}/lps`);
@@ -349,7 +383,8 @@ export async function createNoteRelationships(
   lpIds: number[],
   gpIds: number[],
   participantIds: number[],
-  fundIds: number[] = []
+  fundIds: number[] = [],
+  roadshowIds: number[] = []
 ): Promise<{ success: boolean; note_id: number }> {
   const response = await fetch(`${API_BASE_URL}/notes/${noteId}/relationships`, {
     method: "POST",
@@ -358,7 +393,8 @@ export async function createNoteRelationships(
       lp_ids: lpIds,
       gp_ids: gpIds,
       participant_ids: participantIds,
-      fund_ids: fundIds
+      fund_ids: fundIds,
+      roadshow_ids: roadshowIds
     }),
   });
   return response.json();
@@ -483,5 +519,76 @@ export async function fetchFundSalesFunnel(fundId: number): Promise<SalesFunnelI
 export async function updateLPInterest(fundId: number, lpId: number, interest: string): Promise<void> {
   await fetch(`${API_BASE_URL}/funds/${fundId}/lps/${lpId}/interest?interest=${encodeURIComponent(interest)}`, {
     method: "PUT",
+  });
+}
+
+// Roadshow functions
+export async function fetchRoadshows(): Promise<Roadshow[]> {
+  const response = await fetch(`${API_BASE_URL}/roadshows`);
+  return response.json();
+}
+
+export async function createRoadshow(roadshow: Roadshow): Promise<Roadshow> {
+  const response = await fetch(`${API_BASE_URL}/roadshows`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(roadshow),
+  });
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to create roadshow: ${error}`);
+  }
+  return response.json();
+}
+
+export async function updateRoadshow(roadshowId: number, roadshow: Partial<Roadshow>): Promise<Roadshow> {
+  const response = await fetch(`${API_BASE_URL}/roadshows/${roadshowId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(roadshow),
+  });
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to update roadshow: ${error}`);
+  }
+  return response.json();
+}
+
+export async function deleteRoadshow(roadshowId: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/roadshows/${roadshowId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error("Failed to delete roadshow");
+  }
+}
+
+// Roadshow LP Status functions (similar to sales funnel)
+export async function fetchRoadshowLPStatus(roadshowId: number): Promise<RoadshowLPStatus[]> {
+  const response = await fetch(`${API_BASE_URL}/roadshows/${roadshowId}/lp-status`);
+  return response.json();
+}
+
+export async function updateLPRoadshowStatus(roadshowId: number, lpId: number, status: string): Promise<void> {
+  await fetch(`${API_BASE_URL}/roadshows/${roadshowId}/lps/${lpId}/status?status=${encodeURIComponent(status)}`, {
+    method: "PUT",
+  });
+}
+
+// Link notes to roadshows
+export async function fetchNoteRoadshows(noteId: number): Promise<Roadshow[]> {
+  const response = await fetch(`${API_BASE_URL}/notes/${noteId}/roadshows`);
+  return response.json();
+}
+
+export async function linkNoteToRoadshow(noteId: number, roadshowId: number): Promise<void> {
+  await fetch(`${API_BASE_URL}/notes/${noteId}/roadshows/${roadshowId}`, {
+    method: "POST",
+  });
+}
+
+export async function unlinkNoteFromRoadshow(noteId: number, roadshowId: number): Promise<void> {
+  await fetch(`${API_BASE_URL}/notes/${noteId}/roadshows/${roadshowId}`, {
+    method: "DELETE",
   });
 }

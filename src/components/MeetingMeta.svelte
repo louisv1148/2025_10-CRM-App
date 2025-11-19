@@ -1,18 +1,21 @@
 <script lang="ts">
-  import { isRecording, meetingDate, meetingTitle, meetingFundraise, meetingType, meetingPinned, funds, selectedFunds } from "../lib/stores";
-  import { startRecording, stopRecording, fetchFunds, type Fund } from "../lib/api";
+  import { isRecording, meetingDate, meetingTitle, meetingType, meetingPinned, funds, selectedFunds, roadshows, selectedRoadshows } from "../lib/stores";
+  import { startRecording, stopRecording, fetchFunds, fetchRoadshows, type Fund, type Roadshow } from "../lib/api";
   import { onMount } from "svelte";
 
-  const fundraiseOptions = ["Commitment", "Due Diligence", "Interested", "Low Probability", "Declined", "No Response", "Inactive"];
   const meetingTypeOptions = ["in-person", "in-bound", "call/VC", "chats", "out-bound", "documents"];
 
   onMount(async () => {
-    // Load funds
+    // Load funds and roadshows
     try {
-      const loadedFunds = await fetchFunds();
+      const [loadedFunds, loadedRoadshows] = await Promise.all([
+        fetchFunds(),
+        fetchRoadshows()
+      ]);
       $funds = loadedFunds;
+      $roadshows = loadedRoadshows;
     } catch (err) {
-      console.error("Failed to load funds:", err);
+      console.error("Failed to load data:", err);
     }
   });
 
@@ -43,16 +46,6 @@
   </div>
 
   <div class="form-group">
-    <label for="fundraise">Fundraise Stage</label>
-    <select id="fundraise" bind:value={$meetingFundraise}>
-      <option value="">Select stage...</option>
-      {#each fundraiseOptions as option}
-        <option value={option}>{option}</option>
-      {/each}
-    </select>
-  </div>
-
-  <div class="form-group">
     <label for="meetingType">Meeting Type</label>
     <select id="meetingType" bind:value={$meetingType}>
       <option value="">Select type...</option>
@@ -65,7 +58,7 @@
   <div class="form-group checkbox-group">
     <label class="checkbox-label">
       <input type="checkbox" bind:checked={$meetingPinned} />
-      <span>Pin this meeting</span>
+      <span>Useful</span>
     </label>
   </div>
 
@@ -78,6 +71,17 @@
       {/each}
     </select>
     <small class="help-text">Hold Ctrl/Cmd to select multiple funds</small>
+  </div>
+
+  <div class="form-group">
+    <label for="roadshows">Related Roadshows</label>
+    <select id="roadshows" bind:value={$selectedRoadshows} multiple size="4">
+      <option value="">No roadshow selected</option>
+      {#each $roadshows as roadshow}
+        <option value={roadshow.id}>{roadshow.name}</option>
+      {/each}
+    </select>
+    <small class="help-text">Hold Ctrl/Cmd to select multiple roadshows</small>
   </div>
 
   <div class="recording-controls">

@@ -12,9 +12,10 @@ from datetime import datetime
 import os
 
 from database import (
-    LP, GP, Person, Note, Todo, Distributor, Fund,
+    LP, GP, Person, Note, Todo, Distributor, Fund, Roadshow,
     GPLPLink, GPPersonLink, LPPersonLink, DistributorPersonLink,
-    NoteLPLink, NoteGPLink, NoteFundLink, FundLPInterest,
+    NoteLPLink, NoteGPLink, NoteFundLink, NoteRoadshowLink,
+    FundLPInterest, RoadshowLPStatus,
     get_session, create_db_and_tables
 )
 
@@ -770,6 +771,211 @@ async def update_lp_interest(fund_id: int, lp_id: int, interest: str):
 
         # Find common note IDs
         common_note_ids = list(set(fund_note_ids) & set(lp_note_ids))
+
+        if common_note_ids:
+            # Get the latest note
+            latest_note = session.query(Note).filter(
+                Note.id.in_(common_note_ids)
+            ).order_by(Note.date.desc()).first()
+
+            if latest_note:
+                record.last_contact_date = latest_note.date
+                record.latest_note_id = latest_note.id
+
+        session.commit()
+        session.refresh(record)
+        return record
+
+
+# Roadshow endpoints
+@app.get("/roadshows", response_model=List[Roadshow])
+async def get_roadshows():
+    """Get all roadshows"""
+    with get_session() as session:
+        roadshows = session.query(Roadshow).all()
+        return roadshows
+
+
+@app.post("/roadshows", response_model=Roadshow)
+async def create_roadshow(roadshow_data: dict):
+    """Create new roadshow"""
+    from datetime import datetime
+
+    with get_session() as session:
+        # Convert date strings to datetime objects
+        if 'arrival' in roadshow_data and roadshow_data['arrival']:
+            if isinstance(roadshow_data['arrival'], str):
+                roadshow_data['arrival'] = datetime.fromisoformat(roadshow_data['arrival'].replace('Z', '+00:00'))
+
+        if 'second_arrival' in roadshow_data and roadshow_data['second_arrival']:
+            if isinstance(roadshow_data['second_arrival'], str):
+                roadshow_data['second_arrival'] = datetime.fromisoformat(roadshow_data['second_arrival'].replace('Z', '+00:00'))
+
+        if 'departure' in roadshow_data and roadshow_data['departure']:
+            if isinstance(roadshow_data['departure'], str):
+                roadshow_data['departure'] = datetime.fromisoformat(roadshow_data['departure'].replace('Z', '+00:00'))
+
+        # Create roadshow object
+        roadshow = Roadshow(**roadshow_data)
+        session.add(roadshow)
+        session.commit()
+        session.refresh(roadshow)
+
+        # Update fund.roadshow_date if arrival is set
+        if roadshow.arrival and roadshow.fund_id:
+            fund = session.get(Fund, roadshow.fund_id)
+            if fund:
+                fund.roadshow_date = roadshow.arrival
+                session.commit()
+
+        return roadshow
+
+
+@app.put("/roadshows/{roadshow_id}")
+async def update_roadshow(roadshow_id: int, roadshow_update: dict):
+    """Update roadshow"""
+    from datetime import datetime
+
+    with get_session() as session:
+        roadshow = session.get(Roadshow, roadshow_id)
+        if not roadshow:
+            raise HTTPException(status_code=404, detail="Roadshow not found")
+
+        # Convert date strings to datetime objects
+        if 'arrival' in roadshow_update and roadshow_update['arrival']:
+            if isinstance(roadshow_update['arrival'], str):
+                roadshow_update['arrival'] = datetime.fromisoformat(roadshow_update['arrival'].replace('Z', '+00:00'))
+
+        if 'second_arrival' in roadshow_update and roadshow_update['second_arrival']:
+            if isinstance(roadshow_update['second_arrival'], str):
+                roadshow_update['second_arrival'] = datetime.fromisoformat(roadshow_update['second_arrival'].replace('Z', '+00:00'))
+
+        if 'departure' in roadshow_update and roadshow_update['departure']:
+            if isinstance(roadshow_update['departure'], str):
+                roadshow_update['departure'] = datetime.fromisoformat(roadshow_update['departure'].replace('Z', '+00:00'))
+
+        # Update fields
+        for key, value in roadshow_update.items():
+            if key != 'id' and hasattr(roadshow, key):
+                setattr(roadshow, key, value)
+
+        session.commit()
+        session.refresh(roadshow)
+
+        # Update fund.roadshow_date if arrival changed
+        if roadshow.arrival and roadshow.fund_id:
+            fund = session.get(Fund, roadshow.fund_id)
+            if fund:
+                fund.roadshow_date = roadshow.arrival
+                session.commit()
+
+        return roadshow
+
+
+@app.delete("/roadshows/{roadshow_id}")
+async def delete_roadshow(roadshow_id: int):
+    """Delete roadshow"""
+    with get_session() as session:
+        roadshow = session.get(Roadshow, roadshow_id)
+        if not roadshow:
+            raise HTTPException(status_code=404, detail="Roadshow not found")
+        session.delete(roadshow)
+        session.commit()
+        return {"status": "deleted"}
+
+
+# Roadshow LP Status endpoints (similar to Sales Funnel)
+@app.get("/roadshows/{roadshow_id}/lp-status")
+async def get_roadshow_lp_status(roadshow_id: int):
+    """Get LP status funnel for a specific roadshow"""
+    with get_session() as session:
+        # Get the roadshow
+        roadshow = session.get(Roadshow, roadshow_id)
+        if not roadshow:
+            raise HTTPException(status_code=404, detail="Roadshow not found")
+
+        # Get all LPs
+        lps = session.query(LP).all()
+
+        result = []
+        for lp in lps:
+            # Check if there's a status record for this LP-Roadshow combo
+            status_data = session.query(RoadshowLPStatus).filter(
+                RoadshowLPStatus.roadshow_id == roadshow_id,
+                RoadshowLPStatus.lp_id == lp.id
+            ).first()
+
+            # Find the most recent note related to BOTH this LP and this roadshow
+            latest_note = (
+                session.query(Note)
+                .join(NoteLPLink, Note.id == NoteLPLink.note_id)
+                .join(NoteRoadshowLink, Note.id == NoteRoadshowLink.note_id)
+                .filter(NoteLPLink.lp_id == lp.id)
+                .filter(NoteRoadshowLink.roadshow_id == roadshow_id)
+                .order_by(Note.date.desc())
+                .first()
+            )
+
+            # Extract note info
+            last_contact_date = latest_note.date if latest_note else None
+            latest_note_id = latest_note.id if latest_note else None
+
+            # Determine status
+            status = status_data.status if status_data else "inactive"
+
+            item = {
+                "roadshow_id": roadshow_id,
+                "lp_id": lp.id,
+                "lp_name": lp.name,
+                "status": status,
+                "last_contact_date": last_contact_date.isoformat() if last_contact_date else None,
+                "latest_note_id": latest_note_id,
+                # LP details
+                "aum_billions": lp.aum_billions,
+                "location": lp.location,
+                "priority": lp.priority,
+                "advisor": lp.advisor,
+                "type_of_group": lp.type_of_group,
+                "investment_low": lp.investment_low,
+                "investment_high": lp.investment_high,
+            }
+
+            result.append(item)
+
+        return result
+
+
+@app.put("/roadshows/{roadshow_id}/lps/{lp_id}/status")
+async def update_lp_roadshow_status(roadshow_id: int, lp_id: int, status: str):
+    """Update LP status for a roadshow"""
+    with get_session() as session:
+        # Check if record exists
+        record = session.query(RoadshowLPStatus).filter(
+            RoadshowLPStatus.roadshow_id == roadshow_id,
+            RoadshowLPStatus.lp_id == lp_id
+        ).first()
+
+        if record:
+            # Update existing record
+            record.status = status
+        else:
+            # Create new record
+            record = RoadshowLPStatus(roadshow_id=roadshow_id, lp_id=lp_id, status=status)
+            session.add(record)
+
+        # Update last_contact_date by finding the latest note related to both roadshow and LP
+        roadshow_note_ids = session.query(NoteRoadshowLink.note_id).filter(
+            NoteRoadshowLink.roadshow_id == roadshow_id
+        ).all()
+        roadshow_note_ids = [nid[0] for nid in roadshow_note_ids]
+
+        lp_note_ids = session.query(NoteLPLink.note_id).filter(
+            NoteLPLink.lp_id == lp_id
+        ).all()
+        lp_note_ids = [nid[0] for nid in lp_note_ids]
+
+        # Find common note IDs
+        common_note_ids = list(set(roadshow_note_ids) & set(lp_note_ids))
 
         if common_note_ids:
             # Get the latest note

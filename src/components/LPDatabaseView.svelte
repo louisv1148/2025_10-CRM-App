@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fetchLPs, deleteLP, type LP } from "../lib/api";
+  import { fetchLPs, fetchLP, deleteLP, type LP } from "../lib/api";
   import LPDetailCard from "./LPDetailCard.svelte";
 
   let allLPs: LP[] = [];
@@ -10,6 +10,7 @@
   // Detail card state
   let selectedLP: LP | null = null;
   let showDetailCard = false;
+  let isNewEntry = false; // Track if we're creating a new entry
 
   // Search
   let searchQuery = "";
@@ -307,19 +308,68 @@
   // Detail card functions
   function openDetailCard(lp: LP) {
     selectedLP = lp;
+    isNewEntry = false;
+    showDetailCard = true;
+  }
+
+  function openNewEntryCard() {
+    // Create a blank LP object
+    selectedLP = {
+      name: '',
+      type_of_group: '',
+      priority: '',
+      location: '',
+      aum_billions: null,
+      investment_low: null,
+      investment_high: null,
+      advisor: '',
+      local_mf: '',
+      local_alts: '',
+      intl_mf: '',
+      intl_alts: '',
+      text: ''
+    } as LP;
+    isNewEntry = true;
     showDetailCard = true;
   }
 
   function closeDetailCard() {
     selectedLP = null;
+    isNewEntry = false;
     showDetailCard = false;
   }
 
-  function handleEdit(event: CustomEvent) {
-    const lp = event.detail;
-    console.log("Edit LP:", lp);
-    // TODO: Implement edit functionality
-    alert("Edit functionality coming soon!");
+  async function handleLPCreated(event: CustomEvent) {
+    const createdLP = event.detail;
+    if (!createdLP?.id) return;
+
+    // Add the new LP to the array
+    allLPs = [...allLPs, createdLP];
+    console.log("Added new LP to allLPs array:", createdLP);
+
+    // Reapply filters and sort
+    applyFiltersAndSort();
+  }
+
+  async function handleLPUpdated(event: CustomEvent) {
+    console.log("handleLPUpdated called, event detail:", event.detail);
+
+    const updatedLP = event.detail;
+    if (!updatedLP?.id) return;
+
+    // Update the LP in the allLPs array
+    const lpIndex = allLPs.findIndex(l => l.id === updatedLP.id);
+    if (lpIndex !== -1) {
+      allLPs[lpIndex] = updatedLP;
+      allLPs = [...allLPs]; // Create new array to trigger reactivity
+      console.log("Updated LP in allLPs array at index", lpIndex);
+    }
+
+    // Update selectedLP to reflect changes in the detail card
+    selectedLP = updatedLP;
+
+    // Reapply filters and sort
+    applyFiltersAndSort();
   }
 
   async function handleDelete(event: CustomEvent) {
@@ -340,8 +390,11 @@
 <div class="lp-database-view">
   <div class="header">
     <h2>LPs</h2>
-    <div class="results-count">
-      {filteredLPs.length} of {allLPs.length} records
+    <div class="header-actions">
+      <button class="new-entry-btn" on:click={openNewEntryCard}>+ New Entry</button>
+      <div class="results-count">
+        {filteredLPs.length} of {allLPs.length} records
+      </div>
     </div>
   </div>
 
@@ -564,8 +617,10 @@
   {#if showDetailCard && selectedLP}
     <LPDetailCard
       lp={selectedLP}
+      isNew={isNewEntry}
       on:close={closeDetailCard}
-      on:edit={handleEdit}
+      on:created={handleLPCreated}
+      on:updated={handleLPUpdated}
       on:delete={handleDelete}
     />
   {/if}
@@ -684,7 +739,7 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     z-index: 1000;
     min-width: 250px;
-    max-height: 400px;
+    max-height: 70vh;
     overflow-y: auto;
   }
 

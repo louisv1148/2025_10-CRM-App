@@ -1,29 +1,26 @@
 <script lang="ts">
-  import { selectedLP, selectedParticipants, lps } from "../lib/stores";
+  import { selectedLPs, selectedParticipants, lps } from "../lib/stores";
   import { searchLPs, createLP, searchPeople, createPerson, type LP, type Person } from "../lib/api";
 
   let lpSearchQuery = "";
   let lpSearchResults: LP[] = [];
   let lpShowDropdown = false;
   let lpSearchTimeout: ReturnType<typeof setTimeout>;
-  let selectedLPObject: LP | null = null;
+  let selectedLPObjects: LP[] = [];
 
   let newLPName = "";
 
-  // Reactive: Update selectedLPObject when selectedLP changes
-  $: if ($selectedLP) {
-    // Find the LP object from the lps store or from search results
-    const found = $lps.find(lp => lp.id === $selectedLP);
-    if (found) {
-      selectedLPObject = found;
-    }
-  } else {
-    selectedLPObject = null;
+  // Reactive: Update selectedLPObjects when selectedLPs changes
+  $: {
+    selectedLPObjects = $selectedLPs
+      .map(id => $lps.find(lp => lp.id === id))
+      .filter((lp): lp is LP => lp !== undefined);
   }
 
-  function removeLP() {
-    $selectedLP = null;
-    selectedLPObject = null;
+  function removeLP(lpId: number | undefined) {
+    if (lpId) {
+      $selectedLPs = $selectedLPs.filter(id => id !== lpId);
+    }
   }
 
   // Participants
@@ -55,16 +52,17 @@
   }
 
   function selectLP(lp: LP) {
-    $selectedLP = lp.id || null;
-    selectedLPObject = lp;
+    if (lp.id && !$selectedLPs.includes(lp.id)) {
+      $selectedLPs = [...$selectedLPs, lp.id];
+    }
     lpSearchQuery = "";
     lpShowDropdown = false;
   }
 
-  function clearLP() {
-    $selectedLP = null;
+  function clearLPSearch() {
     lpSearchQuery = "";
     lpSearchResults = [];
+    lpShowDropdown = false;
   }
 
   async function addLP() {
@@ -111,13 +109,13 @@
   }
 
   async function addParticipant() {
-    if (newParticipantName.trim() && $selectedLP) {
+    if (newParticipantName.trim() && $selectedLPs.length > 0) {
       try {
         const newPerson = await createPerson({
           name: newParticipantName.trim(),
           role: "LP",
           org_type: "lp",
-          org_id: $selectedLP
+          org_id: $selectedLPs[0]  // Associate with first selected LP
         });
         if (newPerson.id) {
           $selectedParticipants = [...$selectedParticipants, newPerson.id];
@@ -138,14 +136,14 @@
     <div class="search-input-wrapper">
       <input
         type="text"
-        placeholder="Search LP..."
+        placeholder="Search and select LPs..."
         bind:value={lpSearchQuery}
         on:input={handleLPSearch}
         on:focus={() => lpShowDropdown = lpSearchResults.length > 0}
         on:blur={() => setTimeout(() => lpShowDropdown = false, 200)}
       />
-      {#if $selectedLP && lpSearchQuery}
-        <button class="clear-btn" on:click={clearLP}>✕</button>
+      {#if lpSearchQuery}
+        <button class="clear-btn" on:click={clearLPSearch}>✕</button>
       {/if}
     </div>
 
@@ -170,13 +168,15 @@
     <button on:click={addLP}>Add</button>
   </div>
 
-  <!-- Selected LP Display -->
-  {#if selectedLPObject}
+  <!-- Selected LPs Display -->
+  {#if selectedLPObjects.length > 0}
     <div class="selected-list">
-      <div class="selected-item">
-        <span class="participant-name">{selectedLPObject.name}</span>
-        <button class="remove-btn" on:click={removeLP}>✕</button>
-      </div>
+      {#each selectedLPObjects as lp}
+        <div class="selected-item">
+          <span class="participant-name">{lp.name}</span>
+          <button class="remove-btn" on:click={() => removeLP(lp.id)}>✕</button>
+        </div>
+      {/each}
     </div>
   {/if}
 

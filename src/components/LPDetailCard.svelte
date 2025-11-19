@@ -1,16 +1,22 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from "svelte";
   import type { LP, Person, Note, Todo } from "../lib/api";
-  import { fetchLPPeople, fetchLPNotes, fetchLPTasks, updateLP } from "../lib/api";
+  import { fetchLPPeople, fetchLPNotes, fetchLPTasks, updateLP, createLP } from "../lib/api";
   import NoteDetailCard from "./NoteDetailCard.svelte";
   import PersonDetailCard from "./PersonDetailCard.svelte";
 
   export let lp: LP;
+  export let isNew: boolean = false; // Flag to indicate if this is a new LP
 
   const dispatch = createEventDispatcher();
 
-  let isEditing = false;
+  let isEditing = isNew; // Start in edit mode if it's a new LP
   let editedLP: LP = { ...lp };
+
+  // React to prop changes from parent (e.g., after save)
+  $: if (!isEditing && lp) {
+    editedLP = { ...lp };
+  }
 
   let showPeople = false;
   let showNotes = false;
@@ -28,7 +34,11 @@
   let showPersonDetail = false;
 
   onMount(async () => {
-    if (!lp.id) return;
+    // Skip loading related data if this is a new LP
+    if (isNew || !lp.id) {
+      loading = false;
+      return;
+    }
 
     try {
       // Fetch all related data in parallel
@@ -80,15 +90,23 @@
   }
 
   async function saveEdit() {
-    if (!lp.id) return;
     try {
-      const updated = await updateLP(lp.id, editedLP);
-      lp = updated;
-      isEditing = false;
-      dispatch("updated", updated);
+      if (isNew) {
+        // Creating a new LP
+        const created = await createLP(editedLP);
+        isEditing = false;
+        dispatch("created", created);
+        dispatch("close"); // Close the modal after creating
+      } else {
+        // Updating an existing LP
+        if (!lp.id) return;
+        const updated = await updateLP(lp.id, editedLP);
+        isEditing = false;
+        dispatch("updated", updated);
+      }
     } catch (err) {
-      console.error("Failed to update LP:", err);
-      alert("Failed to update LP");
+      console.error(`Failed to ${isNew ? 'create' : 'update'} LP:`, err);
+      alert(`Failed to ${isNew ? 'create' : 'update'} LP`);
     }
   }
 
@@ -139,11 +157,11 @@
 <div class="modal-overlay" on:click={close}>
   <div class="modal-card" on:click|stopPropagation>
     <div class="card-header">
-      <h2>{lp.name}</h2>
+      <h2>{isNew ? 'New LP' : lp.name}</h2>
       <div class="actions">
         {#if isEditing}
-          <button class="action-btn save" on:click={saveEdit}>Save</button>
-          <button class="action-btn cancel" on:click={cancelEdit}>Cancel</button>
+          <button class="action-btn save" on:click={saveEdit}>{isNew ? 'Create' : 'Save'}</button>
+          <button class="action-btn cancel" on:click={isNew ? close : cancelEdit}>Cancel</button>
         {:else}
           <button class="action-btn edit" on:click={handleEdit}>Edit</button>
           <button class="action-btn delete" on:click={handleDelete}>Delete</button>
@@ -157,8 +175,21 @@
       <div class="info-section">
         <div class="info-grid">
           <div class="info-item">
+            <label>Name</label>
+            {#if isEditing}
+              <input type="text" bind:value={editedLP.name} placeholder="LP Name" required />
+            {:else}
+              <div class="value">{lp.name || "-"}</div>
+            {/if}
+          </div>
+
+          <div class="info-item">
             <label>Type of Group</label>
-            <div class="value">{lp.type_of_group || "-"}</div>
+            {#if isEditing}
+              <input type="text" bind:value={editedLP.type_of_group} placeholder="Type of Group" />
+            {:else}
+              <div class="value">{lp.type_of_group || "-"}</div>
+            {/if}
           </div>
 
           <div class="info-item">
@@ -180,18 +211,39 @@
           </div>
 
           <div class="info-item">
-            <label>AUM</label>
-            <div class="value">{formatNumber(lp.aum_billions)}</div>
+            <label>AUM (Billions)</label>
+            {#if isEditing}
+              <input type="number" bind:value={editedLP.aum_billions} placeholder="AUM in Billions" step="0.1" />
+            {:else}
+              <div class="value">{formatNumber(lp.aum_billions)}</div>
+            {/if}
           </div>
 
           <div class="info-item">
-            <label>Ticket Range</label>
-            <div class="value">{formatRange(lp.investment_low, lp.investment_high)}</div>
+            <label>Investment Low (M)</label>
+            {#if isEditing}
+              <input type="number" bind:value={editedLP.investment_low} placeholder="Low in Millions" step="1" />
+            {:else}
+              <div class="value">{lp.investment_low ? `$${lp.investment_low}M` : "-"}</div>
+            {/if}
+          </div>
+
+          <div class="info-item">
+            <label>Investment High (M)</label>
+            {#if isEditing}
+              <input type="number" bind:value={editedLP.investment_high} placeholder="High in Millions" step="1" />
+            {:else}
+              <div class="value">{lp.investment_high ? `$${lp.investment_high}M` : "-"}</div>
+            {/if}
           </div>
 
           <div class="info-item">
             <label>Advisor</label>
-            <div class="value">{lp.advisor || "-"}</div>
+            {#if isEditing}
+              <input type="text" bind:value={editedLP.advisor} placeholder="Advisor" />
+            {:else}
+              <div class="value">{lp.advisor || "-"}</div>
+            {/if}
           </div>
 
           <div class="info-item">
@@ -205,27 +257,47 @@
           <div class="interests-grid">
             <div class="interest-item">
               <label>Local MF</label>
-              <div class="value">{lp.local_mf || "-"}</div>
+              {#if isEditing}
+                <input type="text" bind:value={editedLP.local_mf} placeholder="Local MF" />
+              {:else}
+                <div class="value">{lp.local_mf || "-"}</div>
+              {/if}
             </div>
             <div class="interest-item">
               <label>Local Alts</label>
-              <div class="value">{lp.local_alts || "-"}</div>
+              {#if isEditing}
+                <input type="text" bind:value={editedLP.local_alts} placeholder="Local Alts" />
+              {:else}
+                <div class="value">{lp.local_alts || "-"}</div>
+              {/if}
             </div>
             <div class="interest-item">
               <label>Intl MF</label>
-              <div class="value">{lp.intl_mf || "-"}</div>
+              {#if isEditing}
+                <input type="text" bind:value={editedLP.intl_mf} placeholder="Intl MF" />
+              {:else}
+                <div class="value">{lp.intl_mf || "-"}</div>
+              {/if}
             </div>
             <div class="interest-item">
               <label>Intl Alts</label>
-              <div class="value">{lp.intl_alts || "-"}</div>
+              {#if isEditing}
+                <input type="text" bind:value={editedLP.intl_alts} placeholder="Intl Alts" />
+              {:else}
+                <div class="value">{lp.intl_alts || "-"}</div>
+              {/if}
             </div>
           </div>
         </div>
 
-        {#if lp.text}
+        {#if lp.text || isEditing}
           <div class="description-section">
             <h4>Description</h4>
-            <div class="description">{lp.text}</div>
+            {#if isEditing}
+              <textarea bind:value={editedLP.text} placeholder="Description"></textarea>
+            {:else}
+              <div class="description">{lp.text || "-"}</div>
+            {/if}
           </div>
         {/if}
       </div>
@@ -675,6 +747,7 @@
 
   /* Edit mode styles */
   .info-item input,
+  .interest-item input,
   .description-section textarea {
     width: 100%;
     padding: 0.5rem;
@@ -686,6 +759,7 @@
   }
 
   .info-item input:focus,
+  .interest-item input:focus,
   .description-section textarea:focus {
     outline: none;
     border-color: #3498db;

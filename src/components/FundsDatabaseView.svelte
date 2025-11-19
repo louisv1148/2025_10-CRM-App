@@ -13,6 +13,7 @@
   // Detail card state
   let selectedFund: Fund | null = null;
   let showDetailCard = false;
+  let isNewEntry = false;
 
   // Search
   let searchQuery = "";
@@ -315,30 +316,84 @@
   // Detail card handlers
   function openDetailCard(fund: Fund) {
     selectedFund = fund;
+    isNewEntry = false;
+    showDetailCard = true;
+  }
+
+  function openNewEntryCard() {
+    // Create a blank Fund object
+    selectedFund = {
+      fund_name: '',
+      geography: '',
+      status: '',
+      asset_class: '',
+      target_mn: undefined,
+      hard_cap_mn: undefined,
+      launch: '',
+      final_close: '',
+      target_irr: '',
+      target_multiple: undefined,
+      potential: '',
+      roadshow_date: '',
+      sectors: '',
+      note: '',
+      current_lps: '',
+      roadshows: '',
+      closed: false,
+      gp_notion_id: ''
+    } as Fund;
+    isNewEntry = true;
     showDetailCard = true;
   }
 
   function closeDetailCard() {
     showDetailCard = false;
+    isNewEntry = false;
     selectedFund = null;
   }
 
+  function handleFundCreated(event: CustomEvent<Fund>) {
+    const created = event.detail;
+    if (!created?.id) return;
+
+    // Add the new fund to the array
+    allFunds = [...allFunds, created];
+    console.log("Added new fund to allFunds array:", created);
+
+    // Reapply filters and sort
+    applyFiltersAndSort();
+  }
+
   function handleFundUpdated(event: CustomEvent<Fund>) {
+    console.log("handleFundUpdated called, event detail:", event.detail);
+
     const updated = event.detail;
+    if (!updated?.id) return;
+
+    // Update the fund in the allFunds array
     const index = allFunds.findIndex(f => f.id === updated.id);
     if (index !== -1) {
       allFunds[index] = updated;
       allFunds = [...allFunds];
-      applyFiltersAndSort();
+      console.log("Updated fund in allFunds array at index", index);
     }
+
+    // Update selectedFund to reflect changes in the detail card
+    selectedFund = updated;
+
+    // Reapply filters and sort
+    applyFiltersAndSort();
   }
 </script>
 
 <div class="fund-database-view">
   <div class="header">
     <h2>Funds</h2>
-    <div class="results-count">
-      {filteredFunds.length} of {allFunds.length} records
+    <div class="header-actions">
+      <button class="new-entry-btn" on:click={openNewEntryCard}>+ New Entry</button>
+      <div class="results-count">
+        {filteredFunds.length} of {allFunds.length} records
+      </div>
     </div>
   </div>
 
@@ -573,7 +628,13 @@
 </div>
 
 {#if showDetailCard && selectedFund}
-  <FundDetailCard fund={selectedFund} on:close={closeDetailCard} on:updated={handleFundUpdated} />
+  <FundDetailCard
+    fund={selectedFund}
+    isNew={isNewEntry}
+    on:close={closeDetailCard}
+    on:created={handleFundCreated}
+    on:updated={handleFundUpdated}
+  />
 {/if}
 
 <style>
@@ -596,6 +657,28 @@
     margin: 0;
     color: #2c3e50;
     font-size: 1.75rem;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .new-entry-btn {
+    padding: 0.5rem 1rem;
+    background: #27ae60;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 500;
+    transition: background 0.2s;
+  }
+
+  .new-entry-btn:hover {
+    background: #229954;
   }
 
   .results-count {
@@ -690,7 +773,7 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     z-index: 1000;
     min-width: 250px;
-    max-height: 400px;
+    max-height: 70vh;
     overflow-y: auto;
   }
 

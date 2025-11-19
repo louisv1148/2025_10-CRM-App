@@ -1,9 +1,17 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from "svelte";
-  import { fetchNoteLPs, fetchNoteGPs, fetchNoteFunds, updateNote, searchFunds, linkNoteToFund, unlinkNoteFromFund, type Note, type LP, type GP, type Fund } from "../lib/api";
+  import {
+    fetchNoteLPs, fetchNoteGPs, fetchNoteFunds, updateNote, createNote,
+    searchLPs, searchGPs, searchFunds,
+    linkNoteToLP, unlinkNoteFromLP,
+    linkNoteToGP, unlinkNoteFromGP,
+    linkNoteToFund, unlinkNoteFromFund,
+    type Note, type LP, type GP, type Fund
+  } from "../lib/api";
   import { parseNotionContentWithImages } from "../lib/notionParser";
 
   export let note: Note;
+  export let isNew: boolean = false;
 
   const dispatch = createEventDispatcher();
 
@@ -13,6 +21,18 @@
   let relatedFunds: Fund[] = [];
   let loadingRelations = true;
 
+  // LP search state
+  let lpSearchQuery = "";
+  let lpSearchResults: LP[] = [];
+  let lpShowDropdown = false;
+  let lpSearchTimeout: ReturnType<typeof setTimeout>;
+
+  // GP search state
+  let gpSearchQuery = "";
+  let gpSearchResults: GP[] = [];
+  let gpShowDropdown = false;
+  let gpSearchTimeout: ReturnType<typeof setTimeout>;
+
   // Fund search state
   let fundSearchQuery = "";
   let fundSearchResults: Fund[] = [];
@@ -20,13 +40,14 @@
   let fundSearchTimeout: ReturnType<typeof setTimeout>;
 
   // Edit mode
-  let isEditing = false;
+  let isEditing = isNew;
   let editedNote: Partial<Note> = {};
   let saving = false;
 
   // Load related entities when note is opened
   onMount(async () => {
-    if (!note.id) {
+    // Skip loading related data if this is a new note
+    if (isNew || !note.id) {
       loadingRelations = false;
       return;
     }
@@ -47,6 +68,44 @@
     }
   });
 
+  // LP search-as-you-type
+  function handleLPSearch() {
+    clearTimeout(lpSearchTimeout);
+    lpSearchTimeout = setTimeout(async () => {
+      if (lpSearchQuery.trim().length < 2) {
+        lpSearchResults = [];
+        lpShowDropdown = false;
+        return;
+      }
+
+      try {
+        lpSearchResults = await searchLPs(lpSearchQuery);
+        lpShowDropdown = true;
+      } catch (err) {
+        console.error("LP search failed:", err);
+      }
+    }, 300);
+  }
+
+  // GP search-as-you-type
+  function handleGPSearch() {
+    clearTimeout(gpSearchTimeout);
+    gpSearchTimeout = setTimeout(async () => {
+      if (gpSearchQuery.trim().length < 2) {
+        gpSearchResults = [];
+        gpShowDropdown = false;
+        return;
+      }
+
+      try {
+        gpSearchResults = await searchGPs(gpSearchQuery);
+        gpShowDropdown = true;
+      } catch (err) {
+        console.error("GP search failed:", err);
+      }
+    }, 300);
+  }
+
   // Fund search-as-you-type
   function handleFundSearch() {
     clearTimeout(fundSearchTimeout);
@@ -66,10 +125,94 @@
     }, 300);
   }
 
+  function clearLPSearch() {
+    lpSearchQuery = "";
+    lpSearchResults = [];
+    lpShowDropdown = false;
+  }
+
+  function clearGPSearch() {
+    gpSearchQuery = "";
+    gpSearchResults = [];
+    gpShowDropdown = false;
+  }
+
   function clearFundSearch() {
     fundSearchQuery = "";
     fundSearchResults = [];
     fundShowDropdown = false;
+  }
+
+  async function addLP(lp: LP) {
+    if (!note.id || !lp.id) return;
+
+    // Check if LP is already linked
+    if (relatedLPs.some(l => l.id === lp.id)) {
+      console.log("LP already linked, skipping");
+      clearLPSearch();
+      return;
+    }
+
+    try {
+      await linkNoteToLP(note.id, lp.id);
+      relatedLPs = [...relatedLPs, lp];
+      clearLPSearch();
+      console.log("LP linked, dispatching updated event");
+      dispatch("updated");
+    } catch (err) {
+      console.error("Failed to link LP:", err);
+      alert("Failed to link LP");
+    }
+  }
+
+  async function removeLP(lp: LP) {
+    if (!note.id || !lp.id) return;
+
+    try {
+      await unlinkNoteFromLP(note.id, lp.id);
+      relatedLPs = relatedLPs.filter(l => l.id !== lp.id);
+      console.log("LP removed, dispatching updated event");
+      dispatch("updated");
+    } catch (err) {
+      console.error("Failed to unlink LP:", err);
+      alert("Failed to unlink LP");
+    }
+  }
+
+  async function addGP(gp: GP) {
+    if (!note.id || !gp.id) return;
+
+    // Check if GP is already linked
+    if (relatedGPs.some(g => g.id === gp.id)) {
+      console.log("GP already linked, skipping");
+      clearGPSearch();
+      return;
+    }
+
+    try {
+      await linkNoteToGP(note.id, gp.id);
+      relatedGPs = [...relatedGPs, gp];
+      clearGPSearch();
+      console.log("GP linked, dispatching updated event");
+      dispatch("updated");
+    } catch (err) {
+      console.error("Failed to link GP:", err);
+      alert("Failed to link GP");
+    }
+  }
+
+  async function removeGP(gp: GP) {
+    if (!note.id || !gp.id) return;
+
+    try {
+      await unlinkNoteFromGP(note.id, gp.id);
+      relatedGPs = relatedGPs.filter(g => g.id !== gp.id);
+      console.log("GP removed, dispatching updated event");
+      dispatch("updated");
+    } catch (err) {
+      console.error("Failed to unlink GP:", err);
+      alert("Failed to unlink GP");
+    }
   }
 
   async function addFund(fund: Fund) {
@@ -119,7 +262,8 @@
       interest: note.interest,
       fundraise: note.fundraise,
       summary: note.summary,
-      useful: note.useful
+      useful: note.useful,
+      raw_notes: note.raw_notes
     };
   }
 
@@ -129,21 +273,31 @@
   }
 
   async function saveChanges() {
-    if (!note.id) return;
-
     saving = true;
     try {
-      const updated = await updateNote(note.id, editedNote);
-      // Update the note object with the new values
-      Object.assign(note, updated);
-      isEditing = false;
-      editedNote = {};
-      console.log("Note saved, dispatching updated event");
-      // Emit event to notify parent that note was updated
-      dispatch("updated");
+      if (isNew) {
+        // Creating a new note
+        const created = await createNote(editedNote as Note);
+        isEditing = false;
+        editedNote = {};
+        console.log("Note created, dispatching created event");
+        dispatch("created", created);
+        dispatch("close"); // Close the modal after creating
+      } else {
+        // Updating an existing note
+        if (!note.id) return;
+        const updated = await updateNote(note.id, editedNote);
+        // Update the note object with the new values
+        Object.assign(note, updated);
+        isEditing = false;
+        editedNote = {};
+        console.log("Note saved, dispatching updated event");
+        // Emit event to notify parent that note was updated
+        dispatch("updated");
+      }
     } catch (err) {
-      console.error('Failed to save note:', err);
-      alert('Failed to save changes');
+      console.error(`Failed to ${isNew ? 'create' : 'save'} note:`, err);
+      alert(`Failed to ${isNew ? 'create' : 'save'} changes`);
     } finally {
       saving = false;
     }
@@ -193,13 +347,13 @@
 <div class="modal-overlay" on:click={close}>
   <div class="modal-card" on:click|stopPropagation>
     <div class="card-header">
-      <h2>{note.name || 'Untitled Note'}</h2>
+      <h2>{isNew ? 'New Note' : (note.name || 'Untitled Note')}</h2>
       <div class="actions">
         {#if isEditing}
           <button class="action-btn save" on:click={saveChanges} disabled={saving}>
-            {saving ? 'Saving...' : 'Save'}
+            {saving ? (isNew ? 'Creating...' : 'Saving...') : (isNew ? 'Create' : 'Save')}
           </button>
-          <button class="action-btn cancel" on:click={cancelEditing} disabled={saving}>
+          <button class="action-btn cancel" on:click={isNew ? close : cancelEditing} disabled={saving}>
             Cancel
           </button>
         {:else}
@@ -315,6 +469,118 @@
               <div class="value">{note.useful ? 'Yes' : 'No'}</div>
             {/if}
           </div>
+
+          <!-- Related LPs Section -->
+          <div class="info-item full-width">
+            <label>Related LPs</label>
+            {#if isEditing}
+              <div class="fund-search-section">
+                <div class="search-input-wrapper">
+                  <input
+                    class="edit-input"
+                    type="text"
+                    placeholder="Search LPs..."
+                    bind:value={lpSearchQuery}
+                    on:input={handleLPSearch}
+                    on:focus={() => lpSearchQuery && (lpShowDropdown = true)}
+                  />
+                  {#if lpSearchQuery}
+                    <button class="clear-btn" on:click={clearLPSearch}>✕</button>
+                  {/if}
+                </div>
+
+                {#if lpShowDropdown && lpSearchResults.length > 0}
+                  <div class="search-dropdown">
+                    {#each lpSearchResults as lp}
+                      <div
+                        class="search-result-item"
+                        on:click={() => addLP(lp)}
+                      >
+                        {lp.name}
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+
+                {#if relatedLPs.length > 0}
+                  <div class="selected-funds">
+                    {#each relatedLPs as lp}
+                      <div class="fund-chip">
+                        <span>{lp.name}</span>
+                        <button class="remove-fund-btn" on:click={() => removeLP(lp)}>✕</button>
+                      </div>
+                    {/each}
+                  </div>
+                {:else}
+                  <div class="no-funds">No LPs linked</div>
+                {/if}
+              </div>
+            {:else}
+              <div class="value">
+                {#if relatedLPs.length > 0}
+                  {relatedLPs.map(l => l.name).join(', ')}
+                {:else}
+                  -
+                {/if}
+              </div>
+            {/if}
+          </div>
+
+          <!-- Related GPs Section -->
+          <div class="info-item full-width">
+            <label>Related GPs</label>
+            {#if isEditing}
+              <div class="fund-search-section">
+                <div class="search-input-wrapper">
+                  <input
+                    class="edit-input"
+                    type="text"
+                    placeholder="Search GPs..."
+                    bind:value={gpSearchQuery}
+                    on:input={handleGPSearch}
+                    on:focus={() => gpSearchQuery && (gpShowDropdown = true)}
+                  />
+                  {#if gpSearchQuery}
+                    <button class="clear-btn" on:click={clearGPSearch}>✕</button>
+                  {/if}
+                </div>
+
+                {#if gpShowDropdown && gpSearchResults.length > 0}
+                  <div class="search-dropdown">
+                    {#each gpSearchResults as gp}
+                      <div
+                        class="search-result-item"
+                        on:click={() => addGP(gp)}
+                      >
+                        {gp.name}
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+
+                {#if relatedGPs.length > 0}
+                  <div class="selected-funds">
+                    {#each relatedGPs as gp}
+                      <div class="fund-chip">
+                        <span>{gp.name}</span>
+                        <button class="remove-fund-btn" on:click={() => removeGP(gp)}>✕</button>
+                      </div>
+                    {/each}
+                  </div>
+                {:else}
+                  <div class="no-funds">No GPs linked</div>
+                {/if}
+              </div>
+            {:else}
+              <div class="value">
+                {#if relatedGPs.length > 0}
+                  {relatedGPs.map(g => g.name).join(', ')}
+                {:else}
+                  -
+                {/if}
+              </div>
+            {/if}
+          </div>
         </div>
 
         <div class="summary-section">
@@ -326,12 +592,14 @@
           {/if}
         </div>
 
-        {#if parsedRawNotes.text}
-          <div class="notes-section">
-            <h4>Notes</h4>
-            <div class="notes">{parsedRawNotes.text}</div>
-          </div>
-        {/if}
+        <div class="notes-section">
+          <h4>Notes</h4>
+          {#if isEditing}
+            <textarea class="edit-textarea" bind:value={editedNote.raw_notes} rows="10"></textarea>
+          {:else}
+            <div class="notes">{parsedRawNotes.text || '-'}</div>
+          {/if}
+        </div>
 
         {#if parsedContentText.text}
           <div class="content-section">
@@ -340,42 +608,6 @@
           </div>
         {/if}
 
-        {#if !loadingRelations && (relatedLPs.length > 0 || relatedGPs.length > 0 || relatedFunds.length > 0)}
-          <div class="relations-section">
-            {#if relatedLPs.length > 0}
-              <div class="relation-group">
-                <h4>Related LPs</h4>
-                <div class="relation-list">
-                  {#each relatedLPs as lp}
-                    <div class="relation-item">{lp.name}</div>
-                  {/each}
-                </div>
-              </div>
-            {/if}
-
-            {#if relatedGPs.length > 0}
-              <div class="relation-group">
-                <h4>Related GPs</h4>
-                <div class="relation-list">
-                  {#each relatedGPs as gp}
-                    <div class="relation-item">{gp.name}</div>
-                  {/each}
-                </div>
-              </div>
-            {/if}
-
-            {#if relatedFunds.length > 0}
-              <div class="relation-group">
-                <h4>Related Funds</h4>
-                <div class="relation-list">
-                  {#each relatedFunds as fund}
-                    <div class="relation-item">{fund.fund_name}</div>
-                  {/each}
-                </div>
-              </div>
-            {/if}
-          </div>
-        {/if}
 
         {#if allImagePaths.length > 0}
           <div class="images-section">

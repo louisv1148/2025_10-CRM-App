@@ -15,17 +15,41 @@
   // Detail card state
   let selectedNote: Note | null = null;
   let showDetailCard = false;
+  let isNewEntry = false;
 
   // Search
   let searchQuery = "";
 
-  // Filter
+  // Filter - New comprehensive filtering system
   let showFilterMenu = false;
-  let activeFilters: {[key: string]: string[]} = {};
-  let availableFilters = {
-    interest: [] as string[],
-    fundraise: [] as string[]
+
+  // Define filter types for each column
+  type FilterCondition = {
+    type: 'contains' | 'not_contains' | 'is_empty' | 'is_not_empty' | 'equals' | 'date_range' | 'checkbox';
+    value?: string;
+    startDate?: string;
+    endDate?: string;
+    checked?: boolean;
   };
+
+  let activeFilters: {[key: string]: FilterCondition} = {};
+
+  // Temporary filter state for building new filters
+  let tempFilters = {
+    date: { startDate: '', endDate: '' },
+    name: { type: 'contains', value: '' },
+    summary: { type: 'contains', value: '' },
+    contact_type: { type: 'equals', value: '' },
+    interest: { type: 'equals', value: '' },
+    related_lps: { type: 'contains', value: '' },
+    related_gps: { type: 'contains', value: '' },
+    fundraise: { type: 'contains', value: '' },
+    useful: { checked: true }
+  };
+
+  // Available unique values for certain fields
+  let availableContactTypes: string[] = [];
+  let availableInterests: string[] = [];
 
   // Sort
   let sortFields: string[] = [];
@@ -164,17 +188,17 @@
       noteGPs = noteGPs;
       noteFunds = noteFunds;
 
-      // Extract unique values for filters
+      // Extract unique values for certain filters
+      const contactTypes = new Set<string>();
       const interests = new Set<string>();
-      const fundraises = new Set<string>();
 
       allNotes.forEach(note => {
+        if (note.contact_type) contactTypes.add(note.contact_type);
         if (note.interest) interests.add(note.interest);
-        if (note.fundraise) fundraises.add(note.fundraise);
       });
 
-      availableFilters.interest = Array.from(interests).sort();
-      availableFilters.fundraise = Array.from(fundraises).sort();
+      availableContactTypes = Array.from(contactTypes).sort();
+      availableInterests = Array.from(interests).sort();
 
       applyFiltersAndSort();
       loading = false;
@@ -197,14 +221,56 @@
     }
 
     // Apply filters
-    Object.entries(activeFilters).forEach(([field, values]) => {
-      if (values.length > 0) {
-        result = result.filter(note => {
-          const noteValue = note[field as keyof Note];
-          if (!noteValue) return false;
-          return values.includes(String(noteValue));
-        });
-      }
+    Object.entries(activeFilters).forEach(([field, condition]) => {
+      result = result.filter(note => {
+        let noteValue: any;
+
+        // Get the value based on field
+        if (field === 'related_lps') {
+          noteValue = note.id ? noteLPs.get(note.id) : '';
+        } else if (field === 'related_gps') {
+          noteValue = note.id ? noteGPs.get(note.id) : '';
+        } else if (field === 'fundraise') {
+          noteValue = note.id ? noteFunds.get(note.id) : '';
+        } else {
+          noteValue = note[field as keyof Note];
+        }
+
+        // Apply filter based on condition type
+        switch (condition.type) {
+          case 'contains':
+            if (!condition.value) return true;
+            return noteValue?.toString().toLowerCase().includes(condition.value.toLowerCase()) || false;
+
+          case 'not_contains':
+            if (!condition.value) return true;
+            return !noteValue?.toString().toLowerCase().includes(condition.value.toLowerCase());
+
+          case 'is_empty':
+            return !noteValue || noteValue === '';
+
+          case 'is_not_empty':
+            return noteValue && noteValue !== '';
+
+          case 'equals':
+            if (!condition.value) return true;
+            return noteValue?.toString().toLowerCase() === condition.value.toLowerCase();
+
+          case 'date_range':
+            if (!noteValue || !condition.startDate || !condition.endDate) return true;
+            const noteDate = new Date(noteValue as string);
+            const startDate = new Date(condition.startDate);
+            const endDate = new Date(condition.endDate);
+            return noteDate >= startDate && noteDate <= endDate;
+
+          case 'checkbox':
+            if (condition.checked === undefined) return true;
+            return condition.checked ? (noteValue === true) : (!noteValue || noteValue === false);
+
+          default:
+            return true;
+        }
+      });
     });
 
     // Apply sort
@@ -232,18 +298,14 @@
   }
 
   // Filter functions
-  function toggleFilter(field: string, value: string) {
-    if (!activeFilters[field]) {
-      activeFilters[field] = [];
-    }
+  function addFilter(field: string, condition: FilterCondition) {
+    activeFilters[field] = condition;
+    activeFilters = { ...activeFilters };
+    applyFiltersAndSort();
+  }
 
-    const index = activeFilters[field].indexOf(value);
-    if (index > -1) {
-      activeFilters[field].splice(index, 1);
-    } else {
-      activeFilters[field].push(value);
-    }
-
+  function removeFilter(field: string) {
+    delete activeFilters[field];
     activeFilters = { ...activeFilters };
     applyFiltersAndSort();
   }
@@ -251,6 +313,10 @@
   function clearFilters() {
     activeFilters = {};
     applyFiltersAndSort();
+  }
+
+  function getActiveFilterCount(): number {
+    return Object.keys(activeFilters).length;
   }
 
   // Sort functions
@@ -331,12 +397,42 @@
   // Detail card handlers
   function openDetailCard(note: Note) {
     selectedNote = note;
+    isNewEntry = false;
+    showDetailCard = true;
+  }
+
+  function openNewEntryCard() {
+    // Create a blank Note object
+    selectedNote = {
+      name: '',
+      date: new Date().toISOString().split('T')[0], // Default to today's date
+      summary: '',
+      contact_type: '',
+      interest: '',
+      raw_notes: '',
+      content_text: '',
+      useful: false
+    } as Note;
+    isNewEntry = true;
     showDetailCard = true;
   }
 
   function closeDetailCard() {
     showDetailCard = false;
+    isNewEntry = false;
     selectedNote = null;
+  }
+
+  async function handleNoteCreated(event: CustomEvent<Note>) {
+    const created = event.detail;
+    if (!created?.id) return;
+
+    // Add the new note to the array
+    allNotes = [...allNotes, created];
+    console.log("Added new note to allNotes array:", created);
+
+    // Reapply filters and sort
+    applyFiltersAndSort();
   }
 
   async function handleNoteUpdated() {
@@ -413,14 +509,17 @@
   }
 
   // Count active filters
-  $: activeFilterCount = Object.values(activeFilters).reduce((sum, arr) => sum + arr.length, 0);
+  $: activeFilterCount = getActiveFilterCount();
 </script>
 
 <div class="database-view">
   <div class="header">
     <h1>Notes Database</h1>
-    <div class="header-stats">
-      {filteredNotes.length} of {allNotes.length} notes
+    <div class="header-actions">
+      <button class="new-entry-btn" on:click={openNewEntryCard}>+ New Entry</button>
+      <div class="header-stats">
+        {filteredNotes.length} of {allNotes.length} notes
+      </div>
     </div>
   </div>
 
@@ -450,40 +549,245 @@
   {#if showFilterMenu}
     <div class="filter-panel">
       <div class="filter-header">
-        <h3>Filters</h3>
+        <h3>Advanced Filters</h3>
         <button class="btn-clear" on:click={clearFilters}>Clear All</button>
       </div>
 
-      <div class="filter-groups">
-        <div class="filter-group">
-          <h4>Interest</h4>
-          <div class="filter-options">
-            {#each availableFilters.interest as interest}
-              <label class="filter-option">
-                <input
-                  type="checkbox"
-                  checked={activeFilters.interest?.includes(interest)}
-                  on:change={() => toggleFilter('interest', interest)}
-                />
-                <span>{interest}</span>
-              </label>
-            {/each}
+      <div class="active-filters">
+        {#if Object.keys(activeFilters).length > 0}
+          <h4>Active Filters:</h4>
+          {#each Object.entries(activeFilters) as [field, condition]}
+            <div class="active-filter-item">
+              <span class="filter-field">{columnOrder.find(c => c.key === field)?.label || field}</span>
+              <span class="filter-condition">
+                {#if condition.type === 'contains'}
+                  contains "{condition.value}"
+                {:else if condition.type === 'not_contains'}
+                  does not contain "{condition.value}"
+                {:else if condition.type === 'is_empty'}
+                  is empty
+                {:else if condition.type === 'is_not_empty'}
+                  is not empty
+                {:else if condition.type === 'equals'}
+                  equals "{condition.value}"
+                {:else if condition.type === 'date_range'}
+                  between {condition.startDate} and {condition.endDate}
+                {:else if condition.type === 'checkbox'}
+                  is {condition.checked ? 'checked' : 'unchecked'}
+                {/if}
+              </span>
+              <button class="btn-remove-filter" on:click={() => removeFilter(field)}>✕</button>
+            </div>
+          {/each}
+        {:else}
+          <p class="no-filters">No active filters. Add a filter below.</p>
+        {/if}
+      </div>
+
+      <div class="add-filter-section">
+        <h4>Add Filter:</h4>
+
+        <!-- Date Filter -->
+        <div class="filter-builder">
+          <label>Date</label>
+          <div class="filter-inputs">
+            <input type="date" bind:value={tempFilters.date.startDate} placeholder="Start date" />
+            <span>to</span>
+            <input type="date" bind:value={tempFilters.date.endDate} placeholder="End date" />
+            <button class="btn-add" on:click={() => {
+              if (tempFilters.date.startDate && tempFilters.date.endDate) {
+                addFilter('date', { type: 'date_range', startDate: tempFilters.date.startDate, endDate: tempFilters.date.endDate });
+                tempFilters.date = { startDate: '', endDate: '' };
+              }
+            }}>Add</button>
           </div>
         </div>
 
-        <div class="filter-group">
-          <h4>Fundraise</h4>
-          <div class="filter-options">
-            {#each availableFilters.fundraise as fundraise}
-              <label class="filter-option">
-                <input
-                  type="checkbox"
-                  checked={activeFilters.fundraise?.includes(fundraise)}
-                  on:change={() => toggleFilter('fundraise', fundraise)}
-                />
-                <span>{fundraise}</span>
-              </label>
-            {/each}
+        <!-- Name Filter -->
+        <div class="filter-builder">
+          <label>Name</label>
+          <div class="filter-inputs">
+            <select bind:value={tempFilters.name.type}>
+              <option value="contains">Contains</option>
+              <option value="not_contains">Does not contain</option>
+              <option value="is_empty">Is empty</option>
+              <option value="is_not_empty">Is not empty</option>
+            </select>
+            {#if tempFilters.name.type === 'contains' || tempFilters.name.type === 'not_contains'}
+              <input type="text" bind:value={tempFilters.name.value} placeholder="Enter text..." />
+            {/if}
+            <button class="btn-add" on:click={() => {
+              if (tempFilters.name.type === 'is_empty' || tempFilters.name.type === 'is_not_empty' || tempFilters.name.value) {
+                addFilter('name', { type: tempFilters.name.type, value: tempFilters.name.value });
+                tempFilters.name = { type: 'contains', value: '' };
+              }
+            }}>Add</button>
+          </div>
+        </div>
+
+        <!-- Summary Filter -->
+        <div class="filter-builder">
+          <label>Summary</label>
+          <div class="filter-inputs">
+            <select bind:value={tempFilters.summary.type}>
+              <option value="contains">Contains</option>
+              <option value="not_contains">Does not contain</option>
+              <option value="is_empty">Is empty</option>
+              <option value="is_not_empty">Is not empty</option>
+            </select>
+            {#if tempFilters.summary.type === 'contains' || tempFilters.summary.type === 'not_contains'}
+              <input type="text" bind:value={tempFilters.summary.value} placeholder="Enter text..." />
+            {/if}
+            <button class="btn-add" on:click={() => {
+              if (tempFilters.summary.type === 'is_empty' || tempFilters.summary.type === 'is_not_empty' || tempFilters.summary.value) {
+                addFilter('summary', { type: tempFilters.summary.type, value: tempFilters.summary.value });
+                tempFilters.summary = { type: 'contains', value: '' };
+              }
+            }}>Add</button>
+          </div>
+        </div>
+
+        <!-- Contact Type Filter -->
+        <div class="filter-builder">
+          <label>Contact Type</label>
+          <div class="filter-inputs">
+            <select bind:value={tempFilters.contact_type.type}>
+              <option value="equals">Equals</option>
+              <option value="contains">Contains</option>
+              <option value="not_contains">Does not contain</option>
+              <option value="is_empty">Is empty</option>
+              <option value="is_not_empty">Is not empty</option>
+            </select>
+            {#if tempFilters.contact_type.type === 'contains' || tempFilters.contact_type.type === 'not_contains' || tempFilters.contact_type.type === 'equals'}
+              {#if availableContactTypes.length > 0 && (tempFilters.contact_type.type === 'equals')}
+                <select bind:value={tempFilters.contact_type.value}>
+                  <option value="">Select...</option>
+                  {#each availableContactTypes as type}
+                    <option value={type}>{type}</option>
+                  {/each}
+                </select>
+              {:else}
+                <input type="text" bind:value={tempFilters.contact_type.value} placeholder="Enter text..." />
+              {/if}
+            {/if}
+            <button class="btn-add" on:click={() => {
+              if (tempFilters.contact_type.type === 'is_empty' || tempFilters.contact_type.type === 'is_not_empty' || tempFilters.contact_type.value) {
+                addFilter('contact_type', { type: tempFilters.contact_type.type, value: tempFilters.contact_type.value });
+                tempFilters.contact_type = { type: 'equals', value: '' };
+              }
+            }}>Add</button>
+          </div>
+        </div>
+
+        <!-- Interest Filter -->
+        <div class="filter-builder">
+          <label>Interest</label>
+          <div class="filter-inputs">
+            <select bind:value={tempFilters.interest.type}>
+              <option value="equals">Equals</option>
+              <option value="contains">Contains</option>
+              <option value="not_contains">Does not contain</option>
+              <option value="is_empty">Is empty</option>
+              <option value="is_not_empty">Is not empty</option>
+            </select>
+            {#if tempFilters.interest.type === 'contains' || tempFilters.interest.type === 'not_contains' || tempFilters.interest.type === 'equals'}
+              {#if availableInterests.length > 0 && (tempFilters.interest.type === 'equals')}
+                <select bind:value={tempFilters.interest.value}>
+                  <option value="">Select...</option>
+                  {#each availableInterests as interest}
+                    <option value={interest}>{interest}</option>
+                  {/each}
+                </select>
+              {:else}
+                <input type="text" bind:value={tempFilters.interest.value} placeholder="Enter text..." />
+              {/if}
+            {/if}
+            <button class="btn-add" on:click={() => {
+              if (tempFilters.interest.type === 'is_empty' || tempFilters.interest.type === 'is_not_empty' || tempFilters.interest.value) {
+                addFilter('interest', { type: tempFilters.interest.type, value: tempFilters.interest.value });
+                tempFilters.interest = { type: 'equals', value: '' };
+              }
+            }}>Add</button>
+          </div>
+        </div>
+
+        <!-- Related LPs Filter -->
+        <div class="filter-builder">
+          <label>Related LPs</label>
+          <div class="filter-inputs">
+            <select bind:value={tempFilters.related_lps.type}>
+              <option value="contains">Contains</option>
+              <option value="not_contains">Does not contain</option>
+              <option value="is_empty">Is empty</option>
+              <option value="is_not_empty">Is not empty</option>
+            </select>
+            {#if tempFilters.related_lps.type === 'contains' || tempFilters.related_lps.type === 'not_contains'}
+              <input type="text" bind:value={tempFilters.related_lps.value} placeholder="Enter text..." />
+            {/if}
+            <button class="btn-add" on:click={() => {
+              if (tempFilters.related_lps.type === 'is_empty' || tempFilters.related_lps.type === 'is_not_empty' || tempFilters.related_lps.value) {
+                addFilter('related_lps', { type: tempFilters.related_lps.type, value: tempFilters.related_lps.value });
+                tempFilters.related_lps = { type: 'contains', value: '' };
+              }
+            }}>Add</button>
+          </div>
+        </div>
+
+        <!-- Related GPs Filter -->
+        <div class="filter-builder">
+          <label>Related GPs</label>
+          <div class="filter-inputs">
+            <select bind:value={tempFilters.related_gps.type}>
+              <option value="contains">Contains</option>
+              <option value="not_contains">Does not contain</option>
+              <option value="is_empty">Is empty</option>
+              <option value="is_not_empty">Is not empty</option>
+            </select>
+            {#if tempFilters.related_gps.type === 'contains' || tempFilters.related_gps.type === 'not_contains'}
+              <input type="text" bind:value={tempFilters.related_gps.value} placeholder="Enter text..." />
+            {/if}
+            <button class="btn-add" on:click={() => {
+              if (tempFilters.related_gps.type === 'is_empty' || tempFilters.related_gps.type === 'is_not_empty' || tempFilters.related_gps.value) {
+                addFilter('related_gps', { type: tempFilters.related_gps.type, value: tempFilters.related_gps.value });
+                tempFilters.related_gps = { type: 'contains', value: '' };
+              }
+            }}>Add</button>
+          </div>
+        </div>
+
+        <!-- Fundraise Filter -->
+        <div class="filter-builder">
+          <label>Fundraise</label>
+          <div class="filter-inputs">
+            <select bind:value={tempFilters.fundraise.type}>
+              <option value="contains">Contains</option>
+              <option value="not_contains">Does not contain</option>
+              <option value="is_empty">Is empty</option>
+              <option value="is_not_empty">Is not empty</option>
+            </select>
+            {#if tempFilters.fundraise.type === 'contains' || tempFilters.fundraise.type === 'not_contains'}
+              <input type="text" bind:value={tempFilters.fundraise.value} placeholder="Enter fund name..." />
+            {/if}
+            <button class="btn-add" on:click={() => {
+              if (tempFilters.fundraise.type === 'is_empty' || tempFilters.fundraise.type === 'is_not_empty' || tempFilters.fundraise.value) {
+                addFilter('fundraise', { type: tempFilters.fundraise.type, value: tempFilters.fundraise.value });
+                tempFilters.fundraise = { type: 'contains', value: '' };
+              }
+            }}>Add</button>
+          </div>
+        </div>
+
+        <!-- Useful Filter (Checkbox) -->
+        <div class="filter-builder">
+          <label>Useful</label>
+          <div class="filter-inputs">
+            <select bind:value={tempFilters.useful.checked}>
+              <option value={true}>Checked</option>
+              <option value={false}>Unchecked</option>
+            </select>
+            <button class="btn-add" on:click={() => {
+              addFilter('useful', { type: 'checkbox', checked: tempFilters.useful.checked });
+            }}>Add</button>
           </div>
         </div>
       </div>
@@ -605,7 +909,13 @@
 </div>
 
 {#if showDetailCard && selectedNote}
-  <NoteDetailCard note={selectedNote} on:close={closeDetailCard} on:updated={handleNoteUpdated} />
+  <NoteDetailCard
+    note={selectedNote}
+    isNew={isNewEntry}
+    on:close={closeDetailCard}
+    on:created={handleNoteCreated}
+    on:updated={handleNoteUpdated}
+  />
 {/if}
 
 <style>
@@ -626,6 +936,28 @@
     margin: 0;
     color: #2c3e50;
     font-size: 2rem;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .new-entry-btn {
+    padding: 0.5rem 1rem;
+    background: #27ae60;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 500;
+    transition: background 0.2s;
+  }
+
+  .new-entry-btn:hover {
+    background: #229954;
   }
 
   .header-stats {
@@ -706,6 +1038,8 @@
     padding: 1.5rem;
     margin-bottom: 1.5rem;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    max-height: 70vh;
+    overflow-y: auto;
   }
 
   .filter-header, .sort-header {
@@ -771,6 +1105,133 @@
 
   .filter-option input[type="checkbox"] {
     cursor: pointer;
+  }
+
+  /* Active Filters Section */
+  .active-filters {
+    background: #f8f9fa;
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1.5rem;
+  }
+
+  .active-filters h4 {
+    margin: 0 0 0.75rem 0;
+    font-size: 0.95rem;
+    color: #2c3e50;
+  }
+
+  .no-filters {
+    color: #999;
+    font-style: italic;
+    margin: 0;
+  }
+
+  .active-filter-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+  }
+
+  .filter-field {
+    font-weight: 600;
+    color: #3498db;
+  }
+
+  .filter-condition {
+    flex: 1;
+    color: #555;
+  }
+
+  .btn-remove-filter {
+    padding: 0.25rem 0.5rem;
+    background: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+
+  .btn-remove-filter:hover {
+    background: #c0392b;
+  }
+
+  /* Add Filter Section */
+  .add-filter-section {
+    border-top: 1px solid #ddd;
+    padding-top: 1rem;
+  }
+
+  .add-filter-section h4 {
+    margin: 0 0 1rem 0;
+    font-size: 0.95rem;
+    color: #2c3e50;
+  }
+
+  .filter-builder {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: #f8f9fa;
+    border-radius: 4px;
+  }
+
+  .filter-builder label {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: #2c3e50;
+  }
+
+  .filter-inputs {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .filter-inputs select,
+  .filter-inputs input[type="text"],
+  .filter-inputs input[type="date"] {
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.9rem;
+  }
+
+  .filter-inputs select {
+    min-width: 150px;
+  }
+
+  .filter-inputs input[type="text"] {
+    flex: 1;
+    min-width: 200px;
+  }
+
+  .filter-inputs input[type="date"] {
+    min-width: 140px;
+  }
+
+  .btn-add {
+    padding: 0.5rem 1rem;
+    background: #27ae60;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    white-space: nowrap;
+  }
+
+  .btn-add:hover {
+    background: #229954;
   }
 
   /* Sort Panel */

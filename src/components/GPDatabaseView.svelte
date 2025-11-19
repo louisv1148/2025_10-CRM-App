@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fetchGPs, deleteGP, type GP } from "../lib/api";
+  import { fetchGPs, fetchGP, deleteGP, type GP } from "../lib/api";
   import GPDetailCard from "./GPDetailCard.svelte";
 
   let allGPs: GP[] = [];
@@ -10,6 +10,7 @@
   // Detail card state
   let selectedGP: GP | null = null;
   let showDetailCard = false;
+  let isNewEntry = false;
 
   // Search
   let searchQuery = "";
@@ -283,19 +284,61 @@
   // Detail card functions
   function openDetailCard(gp: GP) {
     selectedGP = gp;
+    isNewEntry = false;
+    showDetailCard = true;
+  }
+
+  function openNewEntryCard() {
+    // Create a blank GP object
+    selectedGP = {
+      name: '',
+      location: '',
+      contact_level: '',
+      flagship_strategy: '',
+      other_strategies: '',
+      note: ''
+    } as GP;
+    isNewEntry = true;
     showDetailCard = true;
   }
 
   function closeDetailCard() {
     selectedGP = null;
+    isNewEntry = false;
     showDetailCard = false;
   }
 
-  function handleEdit(event: CustomEvent) {
-    const gp = event.detail;
-    console.log("Edit GP:", gp);
-    // TODO: Implement edit functionality
-    alert("Edit functionality coming soon!");
+  async function handleGPCreated(event: CustomEvent) {
+    const createdGP = event.detail;
+    if (!createdGP?.id) return;
+
+    // Add the new GP to the array
+    allGPs = [...allGPs, createdGP];
+    console.log("Added new GP to allGPs array:", createdGP);
+
+    // Reapply filters and sort
+    applyFiltersAndSort();
+  }
+
+  async function handleGPUpdated(event: CustomEvent) {
+    console.log("handleGPUpdated called, event detail:", event.detail);
+
+    const updatedGP = event.detail;
+    if (!updatedGP?.id) return;
+
+    // Update the GP in the allGPs array
+    const gpIndex = allGPs.findIndex(g => g.id === updatedGP.id);
+    if (gpIndex !== -1) {
+      allGPs[gpIndex] = updatedGP;
+      allGPs = [...allGPs]; // Create new array to trigger reactivity
+      console.log("Updated GP in allGPs array at index", gpIndex);
+    }
+
+    // Update selectedGP to reflect changes in the detail card
+    selectedGP = updatedGP;
+
+    // Reapply filters and sort
+    applyFiltersAndSort();
   }
 
   async function handleDelete(event: CustomEvent) {
@@ -316,8 +359,11 @@
 <div class="gp-database-view">
   <div class="header">
     <h2>GPs</h2>
-    <div class="results-count">
-      {filteredGPs.length} of {allGPs.length} records
+    <div class="header-actions">
+      <button class="new-entry-btn" on:click={openNewEntryCard}>+ New Entry</button>
+      <div class="results-count">
+        {filteredGPs.length} of {allGPs.length} records
+      </div>
     </div>
   </div>
 
@@ -523,8 +569,10 @@
   {#if showDetailCard && selectedGP}
     <GPDetailCard
       gp={selectedGP}
+      isNew={isNewEntry}
       on:close={closeDetailCard}
-      on:edit={handleEdit}
+      on:created={handleGPCreated}
+      on:updated={handleGPUpdated}
       on:delete={handleDelete}
     />
   {/if}
@@ -550,6 +598,28 @@
     margin: 0;
     color: #2c3e50;
     font-size: 1.75rem;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .new-entry-btn {
+    padding: 0.5rem 1rem;
+    background: #27ae60;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 500;
+    transition: background 0.2s;
+  }
+
+  .new-entry-btn:hover {
+    background: #229954;
   }
 
   .results-count {
@@ -640,7 +710,7 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     z-index: 1000;
     min-width: 250px;
-    max-height: 400px;
+    max-height: 70vh;
     overflow-y: auto;
   }
 

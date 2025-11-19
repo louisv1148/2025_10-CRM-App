@@ -7,8 +7,10 @@
   import TodoList from "./components/TodoList.svelte";
   import LPDatabaseView from "./components/LPDatabaseView.svelte";
   import GPDatabaseView from "./components/GPDatabaseView.svelte";
+  import FundsDatabaseView from "./components/FundsDatabaseView.svelte";
   import NotesDatabaseView from "./components/NotesDatabaseView.svelte";
   import PeopleDatabaseView from "./components/PeopleDatabaseView.svelte";
+  import RoadshowFunnel from "./components/RoadshowFunnel.svelte";
   import { fetchLPs, fetchGPs, fetchNotes, fetchTodos } from "./lib/api";
   import { lps, gps, notes, todos, activeTab } from "./lib/stores";
 
@@ -49,11 +51,17 @@
       <button class:active={$activeTab === "gp-database"} on:click={() => ($activeTab = "gp-database")}>
         GP Database
       </button>
+      <button class:active={$activeTab === "funds-database"} on:click={() => ($activeTab = "funds-database")}>
+        Funds Database
+      </button>
       <button class:active={$activeTab === "notes-database"} on:click={() => ($activeTab = "notes-database")}>
         Notes Database
       </button>
       <button class:active={$activeTab === "people-database"} on:click={() => ($activeTab = "people-database")}>
         People Database
+      </button>
+      <button class:active={$activeTab === "roadshows"} on:click={() => ($activeTab = "roadshows")}>
+        Roadshows
       </button>
       <button class:active={$activeTab === "history"} on:click={() => ($activeTab = "history")}>
         History
@@ -87,10 +95,14 @@
       <LPDatabaseView />
     {:else if $activeTab === "gp-database"}
       <GPDatabaseView />
+    {:else if $activeTab === "funds-database"}
+      <FundsDatabaseView />
     {:else if $activeTab === "notes-database"}
       <NotesDatabaseView />
     {:else if $activeTab === "people-database"}
       <PeopleDatabaseView />
+    {:else if $activeTab === "roadshows"}
+      <RoadshowFunnel />
     {:else if $activeTab === "history"}
       <div class="history-view">
         <h2>Meeting History</h2>

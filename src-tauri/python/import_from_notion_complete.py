@@ -401,10 +401,14 @@ def import_notes(export_file):
     cursor.execute("SELECT id, notion_id FROM distributor")
     dist_lookup = {notion_id: id for id, notion_id in cursor.fetchall()}
 
+    cursor.execute("SELECT id, notion_id FROM fund")
+    fund_lookup = {notion_id: id for id, notion_id in cursor.fetchall()}
+
     imported_count = 0
     gp_links = 0
     lp_links = 0
     dist_links = 0
+    fund_links = 0
 
     for i, page in enumerate(data['pages'], 1):
         if i % 100 == 0:
@@ -423,7 +427,7 @@ def import_notes(export_file):
         roadshows = extract_property_value(props.get('Roadshows', {}))
         pin = extract_property_value(props.get('PIN', {}))
         useful = extract_property_value(props.get('Useful', {}))
-        fundraise = extract_property_value(props.get('Fundraise', {}))
+        # Fundraise is a relation to Funds, not a text field - handled below
         ai_summary = extract_property_value(props.get('AI summary', {}))
 
         # Extract blocks content
@@ -456,14 +460,14 @@ def import_notes(export_file):
             else:
                 note_date = datetime(1900, 1, 1)
 
-        # Insert note (including legacy fields for compatibility)
+        # Insert note (without fundraise text field - it's a relation, not text)
         cursor.execute("""
             INSERT INTO note (notion_id, name, date, contact_type, local_mf, local_alts,
-                            intl_mf, intl_alts, roadshows, pin, useful, fundraise,
+                            intl_mf, intl_alts, roadshows, pin, useful,
                             ai_summary, content_json, image_paths, raw_notes, summary)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (notion_id, name, note_date, contact_type, local_mf, local_alts, intl_mf,
-              intl_alts, roadshows, pin, useful, fundraise, ai_summary, content_json,
+              intl_alts, roadshows, pin, useful, ai_summary, content_json,
               image_paths_str, content_json or '', ai_summary or ''))
 
         note_id = cursor.lastrowid
@@ -499,13 +503,24 @@ def import_notes(export_file):
                     """, (note_id, dist_lookup[dist_notion_id]))
                     dist_links += 1
 
+        # Create Fund relationships (Fundraise property is a relation to Funds)
+        fund_relations = extract_property_value(props.get('Fundraise', {}), for_storage=False)
+        if fund_relations:
+            for fund_notion_id in fund_relations:
+                if fund_notion_id in fund_lookup:
+                    cursor.execute("""
+                        INSERT INTO notefundlink (note_id, fund_id) VALUES (?, ?)
+                    """, (note_id, fund_lookup[fund_notion_id]))
+                    fund_links += 1
+
     conn.commit()
     conn.close()
 
     print(f"  ✓ Imported {imported_count} notes")
     print(f"  ✓ Created {gp_links} Note-GP relationships")
     print(f"  ✓ Created {lp_links} Note-LP relationships")
-    print(f"  ✓ Created {dist_links} Note-Distributor relationships\n")
+    print(f"  ✓ Created {dist_links} Note-Distributor relationships")
+    print(f"  ✓ Created {fund_links} Note-Fund relationships\n")
 
 
 def main():
@@ -529,6 +544,10 @@ def main():
     import_lps('notion_export_f8e8e49595504e24843093a86170ba4e_20251104_175547.json')
     import_gps('notion_export_3a440409b8f249319081379ff5b10e89_20251104_175602.json')
     import_people('notion_export_79e695dba97e415b87d2dc1d5eb67cd2_20251104_175605.json')
+    # Import funds before notes (notes reference funds via Fundraise relation)
+    print("Importing Funds (will use import_funds.py)...")
+    import subprocess
+    subprocess.run(['python3', 'src-tauri/python/import_funds.py'], check=True)
     import_notes('notion_export_with_images_6b3d8f29d43d402c86a530758b340a72_20251103_215037.json')
 
     print("=" * 80)

@@ -13,6 +13,7 @@
   // Detail card state
   let selectedPerson: Person | null = null;
   let showDetailCard = false;
+  let isNewEntry = false;
 
   // Search
   let searchQuery = "";
@@ -306,12 +307,64 @@
   // Detail card handlers
   function openDetailCard(person: Person) {
     selectedPerson = person;
+    isNewEntry = false;
+    showDetailCard = true;
+  }
+
+  function openNewEntryCard() {
+    // Create a blank Person object
+    selectedPerson = {
+      name: '',
+      position: '',
+      role: '',
+      people_type: '',
+      org_type: '',
+      location: '',
+      email: '',
+      phone: '',
+      note: ''
+    } as Person;
+    isNewEntry = true;
     showDetailCard = true;
   }
 
   function closeDetailCard() {
     showDetailCard = false;
+    isNewEntry = false;
     selectedPerson = null;
+  }
+
+  function handlePersonCreated(event: CustomEvent<Person>) {
+    const created = event.detail;
+    if (!created?.id) return;
+
+    // Add the new person to the array
+    allPeople = [...allPeople, created];
+    console.log("Added new person to allPeople array:", created);
+
+    // Reapply filters and sort
+    applyFiltersAndSort();
+  }
+
+  function handlePersonUpdated(event: CustomEvent<Person>) {
+    console.log("handlePersonUpdated called, event detail:", event.detail);
+
+    const updated = event.detail;
+    if (!updated?.id) return;
+
+    // Update the person in the allPeople array
+    const index = allPeople.findIndex(p => p.id === updated.id);
+    if (index !== -1) {
+      allPeople[index] = updated;
+      allPeople = [...allPeople];
+      console.log("Updated person in allPeople array at index", index);
+    }
+
+    // Update selectedPerson to reflect changes in the detail card
+    selectedPerson = updated;
+
+    // Reapply filters and sort
+    applyFiltersAndSort();
   }
 
   // Count active filters
@@ -321,8 +374,11 @@
 <div class="database-view">
   <div class="header">
     <h1>People Database</h1>
-    <div class="header-stats">
-      {filteredPeople.length} of {allPeople.length} people
+    <div class="header-actions">
+      <button class="new-entry-btn" on:click={openNewEntryCard}>+ New Entry</button>
+      <div class="header-stats">
+        {filteredPeople.length} of {allPeople.length} people
+      </div>
     </div>
   </div>
 
@@ -533,7 +589,13 @@
 </div>
 
 {#if showDetailCard && selectedPerson}
-  <PersonDetailCard person={selectedPerson} on:close={closeDetailCard} />
+  <PersonDetailCard
+    person={selectedPerson}
+    isNew={isNewEntry}
+    on:close={closeDetailCard}
+    on:created={handlePersonCreated}
+    on:updated={handlePersonUpdated}
+  />
 {/if}
 
 <style>
@@ -554,6 +616,28 @@
     margin: 0;
     color: #2c3e50;
     font-size: 2rem;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .new-entry-btn {
+    padding: 0.5rem 1rem;
+    background: #27ae60;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 500;
+    transition: background 0.2s;
+  }
+
+  .new-entry-btn:hover {
+    background: #229954;
   }
 
   .header-stats {
@@ -644,6 +728,8 @@
     padding: 1.5rem;
     margin-bottom: 1.5rem;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    max-height: 70vh;
+    overflow-y: auto;
   }
 
   .filter-header, .sort-header, .columns-header {
