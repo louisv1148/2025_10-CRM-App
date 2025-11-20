@@ -73,10 +73,26 @@ export interface Note {
 
 export interface Todo {
   id?: number;
-  note_id: number;
-  description: string;
-  status?: string;
+  title: string;
+  description?: string;
+  status?: string;  // pending, in_progress, completed, cancelled
+  priority?: string;  // low, medium, high, urgent
+  created_at?: string;
   due_date?: string;
+  completed_at?: string;
+  recurrence_pattern?: string;  // JSON string: {"type": "daily|weekly|monthly", "interval": 1, "end_date": "ISO8601"}
+  parent_todo_id?: number;
+  tags?: string;  // Comma-separated
+  note_id?: number;  // Legacy/optional
+}
+
+export interface TodoRelationships {
+  lp_ids?: number[];
+  gp_ids?: number[];
+  person_ids?: number[];
+  fund_ids?: number[];
+  roadshow_ids?: number[];
+  note_ids?: number[];
 }
 
 export interface Fund {
@@ -400,9 +416,25 @@ export async function createNoteRelationships(
   return response.json();
 }
 
-// API functions - Todos
-export async function fetchTodos(): Promise<Todo[]> {
-  const response = await fetch(`${API_BASE_URL}/todos`);
+// Enhanced API functions - Todos
+export async function fetchTodos(filters?: {
+  status?: string;
+  priority?: string;
+  tag?: string;
+  due_before?: string;
+  due_after?: string;
+}): Promise<Todo[]> {
+  const params = new URLSearchParams();
+  if (filters) {
+    if (filters.status) params.append("status", filters.status);
+    if (filters.priority) params.append("priority", filters.priority);
+    if (filters.tag) params.append("tag", filters.tag);
+    if (filters.due_before) params.append("due_before", filters.due_before);
+    if (filters.due_after) params.append("due_after", filters.due_after);
+  }
+  const queryString = params.toString();
+  const url = queryString ? `${API_BASE_URL}/todos?${queryString}` : `${API_BASE_URL}/todos`;
+  const response = await fetch(url);
   return response.json();
 }
 
@@ -421,6 +453,56 @@ export async function updateTodo(id: number, todo: Partial<Todo>): Promise<Todo>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(todo),
   });
+  return response.json();
+}
+
+export async function deleteTodo(id: number): Promise<{ success: boolean }> {
+  const response = await fetch(`${API_BASE_URL}/todos/${id}`, {
+    method: "DELETE",
+  });
+  return response.json();
+}
+
+// Todo relationship functions
+export async function createTodoRelationships(
+  todoId: number,
+  relationships: TodoRelationships
+): Promise<{ success: boolean; todo_id: number }> {
+  const response = await fetch(`${API_BASE_URL}/todos/${todoId}/relationships`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(relationships),
+  });
+  return response.json();
+}
+
+export async function fetchTodoLPs(todoId: number): Promise<LP[]> {
+  const response = await fetch(`${API_BASE_URL}/todos/${todoId}/lps`);
+  return response.json();
+}
+
+export async function fetchTodoGPs(todoId: number): Promise<GP[]> {
+  const response = await fetch(`${API_BASE_URL}/todos/${todoId}/gps`);
+  return response.json();
+}
+
+export async function fetchTodoPeople(todoId: number): Promise<Person[]> {
+  const response = await fetch(`${API_BASE_URL}/todos/${todoId}/people`);
+  return response.json();
+}
+
+export async function fetchTodoFunds(todoId: number): Promise<Fund[]> {
+  const response = await fetch(`${API_BASE_URL}/todos/${todoId}/funds`);
+  return response.json();
+}
+
+export async function fetchTodoRoadshows(todoId: number): Promise<Roadshow[]> {
+  const response = await fetch(`${API_BASE_URL}/todos/${todoId}/roadshows`);
+  return response.json();
+}
+
+export async function fetchTodoNotes(todoId: number): Promise<Note[]> {
+  const response = await fetch(`${API_BASE_URL}/todos/${todoId}/notes`);
   return response.json();
 }
 

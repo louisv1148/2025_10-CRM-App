@@ -11,6 +11,7 @@
   import NotesDatabaseView from "./components/NotesDatabaseView.svelte";
   import PeopleDatabaseView from "./components/PeopleDatabaseView.svelte";
   import RoadshowFunnel from "./components/RoadshowFunnel.svelte";
+  import TodoDatabaseView from "./components/TodoDatabaseView.svelte";
   import { fetchLPs, fetchGPs, fetchNotes, fetchTodos } from "./lib/api";
   import { lps, gps, notes, todos, activeTab } from "./lib/stores";
 
@@ -60,11 +61,11 @@
       <button class:active={$activeTab === "people-database"} on:click={() => ($activeTab = "people-database")}>
         People Database
       </button>
+      <button class:active={$activeTab === "todos"} on:click={() => ($activeTab = "todos")}>
+        Todos
+      </button>
       <button class:active={$activeTab === "roadshows"} on:click={() => ($activeTab = "roadshows")}>
         Roadshows
-      </button>
-      <button class:active={$activeTab === "history"} on:click={() => ($activeTab = "history")}>
-        History
       </button>
     </nav>
   </header>
@@ -101,28 +102,10 @@
       <NotesDatabaseView />
     {:else if $activeTab === "people-database"}
       <PeopleDatabaseView />
+    {:else if $activeTab === "todos"}
+      <TodoDatabaseView />
     {:else if $activeTab === "roadshows"}
       <RoadshowFunnel />
-    {:else if $activeTab === "history"}
-      <div class="history-view">
-        <h2>Meeting History</h2>
-        <div class="notes-list">
-          {#each $notes as note}
-            <div class="note-card">
-              <div class="note-date">{new Date(note.date).toLocaleDateString()}</div>
-              <div class="note-summary">{note.summary || "No summary"}</div>
-              <div class="note-meta">
-                {#if note.fundraise}
-                  <span class="badge">Fundraise: {note.fundraise}</span>
-                {/if}
-                {#if note.interest}
-                  <span class="badge">Interest: {note.interest}</span>
-                {/if}
-              </div>
-            </div>
-          {/each}
-        </div>
-      </div>
     {:else if $activeTab === "contacts"}
       <div class="contacts-view">
         <h2>Contacts</h2>
@@ -220,56 +203,12 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   }
 
-  .history-view,
   .contacts-view {
     background: white;
     border-radius: 8px;
     padding: 2rem;
     height: 100%;
     overflow-y: auto;
-  }
-
-  .notes-list {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    margin-top: 1rem;
-  }
-
-  .note-card {
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    padding: 1rem;
-    cursor: pointer;
-    transition: box-shadow 0.2s;
-  }
-
-  .note-card:hover {
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-  }
-
-  .note-date {
-    font-weight: bold;
-    color: #2c3e50;
-    margin-bottom: 0.5rem;
-  }
-
-  .note-summary {
-    color: #666;
-    margin-bottom: 0.5rem;
-  }
-
-  .note-meta {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .badge {
-    background: #3498db;
-    color: white;
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.85rem;
   }
 
   .contacts-grid {

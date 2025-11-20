@@ -194,20 +194,75 @@ class Note(SQLModel, table=True):
     # Relationships via link tables (many-to-many)
     # GPs, LPs, Distributors handled via NoteGPLink, NoteLPLink, NoteDistributorLink
 
-    # Todos
-    todos: List["Todo"] = Relationship(back_populates="note")
+    # Legacy direct todos relationship (optional, kept for backward compatibility)
+    # Use TodoNoteLink for many-to-many relationships instead
 
 
 class Todo(SQLModel, table=True):
-    """Action items from meetings"""
+    """Enhanced task management with relationships and recurrence"""
     id: Optional[int] = Field(default=None, primary_key=True)
-    note_id: int = Field(foreign_key="note.id")
-    description: str
-    status: str = "pending"  # pending/completed
-    due_date: Optional[datetime] = None
 
-    # Relationship
-    note: Optional[Note] = Relationship(back_populates="todos")
+    # Core fields
+    title: str = Field(index=True)
+    description: Optional[str] = None
+    status: str = "pending"  # pending, in_progress, completed, cancelled
+    priority: Optional[str] = "medium"  # low, medium, high, urgent
+
+    # Dates
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    due_date: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+    # Recurrence pattern (JSON string)
+    # Format: {"type": "daily|weekly|monthly", "interval": 1, "end_date": "ISO8601"}
+    recurrence_pattern: Optional[str] = None
+    parent_todo_id: Optional[int] = Field(default=None, foreign_key="todo.id")  # For recurring task instances
+
+    # Tags (comma-separated for simple filtering)
+    tags: Optional[str] = None
+
+    # Legacy relationship (optional - for backward compatibility)
+    note_id: Optional[int] = Field(default=None, foreign_key="note.id")
+
+    # Relationships via link tables defined below
+    # Many-to-many with LPs, GPs, People, Funds, Roadshows, Notes
+
+
+# Todo relationship link tables
+class TodoLPLink(SQLModel, table=True):
+    """Link todos to LPs"""
+    todo_id: int = Field(foreign_key="todo.id", primary_key=True)
+    lp_id: int = Field(foreign_key="lp.id", primary_key=True)
+
+
+class TodoGPLink(SQLModel, table=True):
+    """Link todos to GPs"""
+    todo_id: int = Field(foreign_key="todo.id", primary_key=True)
+    gp_id: int = Field(foreign_key="gp.id", primary_key=True)
+
+
+class TodoPersonLink(SQLModel, table=True):
+    """Link todos to People"""
+    todo_id: int = Field(foreign_key="todo.id", primary_key=True)
+    person_id: int = Field(foreign_key="person.id", primary_key=True)
+
+
+class TodoFundLink(SQLModel, table=True):
+    """Link todos to Funds"""
+    todo_id: int = Field(foreign_key="todo.id", primary_key=True)
+    fund_id: int = Field(foreign_key="fund.id", primary_key=True)
+
+
+class TodoRoadshowLink(SQLModel, table=True):
+    """Link todos to Roadshows"""
+    todo_id: int = Field(foreign_key="todo.id", primary_key=True)
+    roadshow_id: int = Field(foreign_key="roadshow.id", primary_key=True)
+
+
+class TodoNoteLink(SQLModel, table=True):
+    """Link todos to Notes (many-to-many)"""
+    todo_id: int = Field(foreign_key="todo.id", primary_key=True)
+    note_id: int = Field(foreign_key="note.id", primary_key=True)
 
 
 class Fund(SQLModel, table=True):

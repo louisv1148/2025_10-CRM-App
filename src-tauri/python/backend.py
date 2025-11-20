@@ -15,6 +15,7 @@ from database import (
     LP, GP, Person, Note, Todo, Distributor, Fund, Roadshow,
     GPLPLink, GPPersonLink, LPPersonLink, DistributorPersonLink,
     NoteLPLink, NoteGPLink, NoteFundLink, NoteRoadshowLink,
+    TodoLPLink, TodoGPLink, TodoPersonLink, TodoFundLink, TodoRoadshowLink, TodoNoteLink,
     FundLPInterest, RoadshowLPStatus,
     get_session, create_db_and_tables
 )
@@ -518,40 +519,268 @@ async def create_note_relationships(
         return {"success": True, "note_id": note_id}
 
 
-# Todo endpoints
+# Enhanced Todo endpoints with relationships and recurrence
 @app.get("/todos", response_model=List[Todo])
-async def get_todos():
-    """Get all todos"""
+async def get_todos(
+    status: Optional[str] = None,
+    priority: Optional[str] = None,
+    tag: Optional[str] = None,
+    due_before: Optional[str] = None,
+    due_after: Optional[str] = None
+):
+    """Get all todos with optional filtering"""
     with get_session() as session:
-        todos = session.query(Todo).all()
+        query = session.query(Todo)
+
+        if status:
+            query = query.filter(Todo.status == status)
+        if priority:
+            query = query.filter(Todo.priority == priority)
+        if tag:
+            query = query.filter(Todo.tags.like(f"%{tag}%"))
+        if due_before:
+            query = query.filter(Todo.due_date <= due_before)
+        if due_after:
+            query = query.filter(Todo.due_date >= due_after)
+
+        todos = query.order_by(Todo.due_date.asc(), Todo.priority.desc()).all()
         return todos
 
 
 @app.post("/todos", response_model=Todo)
 async def create_todo(todo: Todo):
-    """Create new todo"""
+    """Create new todo with optional relationships"""
+    import json
+    from datetime import timedelta, datetime as dt
+
     with get_session() as session:
+        # Convert string dates to datetime objects
+        if isinstance(todo.due_date, str):
+            try:
+                todo.due_date = dt.fromisoformat(todo.due_date)
+            except (ValueError, AttributeError):
+                todo.due_date = None
+
         session.add(todo)
         session.commit()
         session.refresh(todo)
+
+        # Handle recurrence - create next instance if needed
+        if todo.recurrence_pattern and not todo.parent_todo_id:
+            try:
+                pattern = json.loads(todo.recurrence_pattern)
+                recurrence_type = pattern.get("type")
+                interval = pattern.get("interval", 1)
+
+                if recurrence_type and todo.due_date:
+                    # Calculate next due date
+                    if recurrence_type == "daily":
+                        next_due = todo.due_date + timedelta(days=interval)
+                    elif recurrence_type == "weekly":
+                        next_due = todo.due_date + timedelta(weeks=interval)
+                    elif recurrence_type == "monthly":
+                        next_due = todo.due_date + timedelta(days=30 * interval)  # Approximate
+                    else:
+                        next_due = None
+
+                    # Create next instance (will be created when current is completed)
+                    # This is just a placeholder - actual creation happens on completion
+            except:
+                pass  # Invalid recurrence pattern, ignore
+
         return todo
 
 
 @app.put("/todos/{todo_id}", response_model=Todo)
 async def update_todo(todo_id: int, todo_update: Todo):
     """Update todo (e.g., mark as completed)"""
+    import json
+    from datetime import timedelta, datetime as dt
+
     with get_session() as session:
         todo = session.get(Todo, todo_id)
         if not todo:
             raise HTTPException(status_code=404, detail="Todo not found")
 
-        for key, value in todo_update.dict(exclude_unset=True).items():
+        update_data = todo_update.model_dump(exclude_unset=True)
+
+        # Convert string dates to datetime objects
+        if 'due_date' in update_data and isinstance(update_data['due_date'], str):
+            try:
+                update_data['due_date'] = dt.fromisoformat(update_data['due_date'])
+            except (ValueError, AttributeError):
+                update_data['due_date'] = None
+
+        # If marking as completed and has recurrence, create next instance
+        if update_data.get("status") == "completed" and todo.recurrence_pattern and not todo.parent_todo_id:
+            try:
+                pattern = json.loads(todo.recurrence_pattern)
+                recurrence_type = pattern.get("type")
+                interval = pattern.get("interval", 1)
+                end_date_str = pattern.get("end_date")
+
+                if recurrence_type and todo.due_date:
+                    # Calculate next due date
+                    if recurrence_type == "daily":
+                        next_due = todo.due_date + timedelta(days=interval)
+                    elif recurrence_type == "weekly":
+                        next_due = todo.due_date + timedelta(weeks=interval)
+                    elif recurrence_type == "monthly":
+                        next_due = todo.due_date + timedelta(days=30 * interval)
+                    else:
+                        next_due = None
+
+                    # Check if we should create next instance
+                    should_create = True
+                    if end_date_str and next_due:
+                        end_date = dt.fromisoformat(end_date_str)
+                        if next_due > end_date:
+                            should_create = False
+
+                    if should_create and next_due:
+                        # Create next recurring instance
+                        next_todo = Todo(
+                            title=todo.title,
+                            description=todo.description,
+                            status="pending",
+                            priority=todo.priority,
+                            due_date=next_due,
+                            recurrence_pattern=todo.recurrence_pattern,
+                            parent_todo_id=todo.id,
+                            tags=todo.tags,
+                            note_id=todo.note_id
+                        )
+                        session.add(next_todo)
+            except Exception as e:
+                print(f"Error creating recurring todo: {e}")
+
+        # Set completed_at if marking as completed
+        if update_data.get("status") == "completed" and not update_data.get("completed_at"):
+            update_data["completed_at"] = dt.utcnow()
+
+        for key, value in update_data.items():
             setattr(todo, key, value)
 
         session.add(todo)
         session.commit()
         session.refresh(todo)
         return todo
+
+
+@app.delete("/todos/{todo_id}")
+async def delete_todo(todo_id: int):
+    """Delete a todo"""
+    with get_session() as session:
+        todo = session.get(Todo, todo_id)
+        if not todo:
+            raise HTTPException(status_code=404, detail="Todo not found")
+
+        session.delete(todo)
+        session.commit()
+        return {"success": True, "message": "Todo deleted"}
+
+
+# Todo relationship endpoints
+@app.post("/todos/{todo_id}/relationships")
+async def create_todo_relationships(
+    todo_id: int,
+    lp_ids: List[int] = [],
+    gp_ids: List[int] = [],
+    person_ids: List[int] = [],
+    fund_ids: List[int] = [],
+    roadshow_ids: List[int] = [],
+    note_ids: List[int] = []
+):
+    """Link a todo to LPs, GPs, People, Funds, Roadshows, and Notes"""
+    with get_session() as session:
+        todo = session.get(Todo, todo_id)
+        if not todo:
+            raise HTTPException(status_code=404, detail="Todo not found")
+
+        # Clear existing relationships
+        session.query(TodoLPLink).filter(TodoLPLink.todo_id == todo_id).delete()
+        session.query(TodoGPLink).filter(TodoGPLink.todo_id == todo_id).delete()
+        session.query(TodoPersonLink).filter(TodoPersonLink.todo_id == todo_id).delete()
+        session.query(TodoFundLink).filter(TodoFundLink.todo_id == todo_id).delete()
+        session.query(TodoRoadshowLink).filter(TodoRoadshowLink.todo_id == todo_id).delete()
+        session.query(TodoNoteLink).filter(TodoNoteLink.todo_id == todo_id).delete()
+
+        # Create new relationships
+        for lp_id in lp_ids:
+            session.add(TodoLPLink(todo_id=todo_id, lp_id=lp_id))
+        for gp_id in gp_ids:
+            session.add(TodoGPLink(todo_id=todo_id, gp_id=gp_id))
+        for person_id in person_ids:
+            session.add(TodoPersonLink(todo_id=todo_id, person_id=person_id))
+        for fund_id in fund_ids:
+            session.add(TodoFundLink(todo_id=todo_id, fund_id=fund_id))
+        for roadshow_id in roadshow_ids:
+            session.add(TodoRoadshowLink(todo_id=todo_id, roadshow_id=roadshow_id))
+        for note_id in note_ids:
+            session.add(TodoNoteLink(todo_id=todo_id, note_id=note_id))
+
+        session.commit()
+        return {"success": True, "todo_id": todo_id}
+
+
+@app.get("/todos/{todo_id}/lps")
+async def get_todo_lps(todo_id: int):
+    """Get all LPs linked to a todo"""
+    with get_session() as session:
+        links = session.query(TodoLPLink).filter(TodoLPLink.todo_id == todo_id).all()
+        lp_ids = [link.lp_id for link in links]
+        lps = session.query(LP).filter(LP.id.in_(lp_ids)).all() if lp_ids else []
+        return lps
+
+
+@app.get("/todos/{todo_id}/gps")
+async def get_todo_gps(todo_id: int):
+    """Get all GPs linked to a todo"""
+    with get_session() as session:
+        links = session.query(TodoGPLink).filter(TodoGPLink.todo_id == todo_id).all()
+        gp_ids = [link.gp_id for link in links]
+        gps = session.query(GP).filter(GP.id.in_(gp_ids)).all() if gp_ids else []
+        return gps
+
+
+@app.get("/todos/{todo_id}/people")
+async def get_todo_people(todo_id: int):
+    """Get all people linked to a todo"""
+    with get_session() as session:
+        links = session.query(TodoPersonLink).filter(TodoPersonLink.todo_id == todo_id).all()
+        person_ids = [link.person_id for link in links]
+        people = session.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
+        return people
+
+
+@app.get("/todos/{todo_id}/funds")
+async def get_todo_funds(todo_id: int):
+    """Get all funds linked to a todo"""
+    with get_session() as session:
+        links = session.query(TodoFundLink).filter(TodoFundLink.todo_id == todo_id).all()
+        fund_ids = [link.fund_id for link in links]
+        funds = session.query(Fund).filter(Fund.id.in_(fund_ids)).all() if fund_ids else []
+        return funds
+
+
+@app.get("/todos/{todo_id}/roadshows")
+async def get_todo_roadshows(todo_id: int):
+    """Get all roadshows linked to a todo"""
+    with get_session() as session:
+        links = session.query(TodoRoadshowLink).filter(TodoRoadshowLink.todo_id == todo_id).all()
+        roadshow_ids = [link.roadshow_id for link in links]
+        roadshows = session.query(Roadshow).filter(Roadshow.id.in_(roadshow_ids)).all() if roadshow_ids else []
+        return roadshows
+
+
+@app.get("/todos/{todo_id}/notes")
+async def get_todo_notes(todo_id: int):
+    """Get all notes linked to a todo"""
+    with get_session() as session:
+        links = session.query(TodoNoteLink).filter(TodoNoteLink.todo_id == todo_id).all()
+        note_ids = [link.note_id for link in links]
+        notes = session.query(Note).filter(Note.id.in_(note_ids)).all() if note_ids else []
+        return notes
 
 
 # Relationship endpoints
